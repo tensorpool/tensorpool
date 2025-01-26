@@ -1,0 +1,3 @@
+commands = [ "python mnist.py --epochs 10",]
+optimization_priority = "TIME"
+region = "null"

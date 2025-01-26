@@ -1,0 +1,39 @@
+[project]
+name = "tensorpool"
+version = "0.0.1"
+description = "TensorPool is the easiest way to execute ML jobs on cloud GPUs."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "pip-tools>=6.13.0",
+    "requests>=2.32.3",
+    "toml>=0.10.2",
+    "tqdm>=4.67.1",
+]
+authors = [{ name = "Joshua Martinez", email = "joshua@tensorpool.dev" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Information Technology",
+    "Topic :: Utilities",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+]
+
+[project.scripts]
+tensorpool = "tensorpool.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = ["ruff>=0.9.3"]
