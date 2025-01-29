@@ -55,16 +55,14 @@ tensorpool run
 ```
 Check your jobs and their outputs on the [dashboard](https://tensorpool.dev/dashboard)
 
-See more examples in the [examples](
+More examples can be found [here](https://github.com/tensorpool/tensorpool/tree/main/examples/mnist)
 
 ## Configuration
 
-The heart of Tensorpool is the `tp-config.toml` which can automatically be created for you. You can:
-- Review and modify it before execution
-- Reuse it for future runs
-- Version control it with your code
+The heart of Tensorpool is the `tp-config.toml` which can automatically be created for you, or you can create it yourself!
+When you run `tensorpool {your command}`, TensorPool will automatically generate a `tp-config.toml` file in your project directory.
 
-Here’s what a `tp-config.toml` looks like:
+Here's a complete list of all fields supported in the `tp-config.toml`:
 ```toml
 commands = [
     # List of commands to run for the job
@@ -78,19 +76,39 @@ cloud = "GCP"       # Optional: "GCP" or "AWS"
 region = "us-west1" # Optional: datacenter region
 ```
 
+The beauty of the `tp-config.toml` is its simplicity and flexibility, this allows you to:
+- Review and modify it before execution
+- Reuse it for future runs
+- Version control it with your code
+
 <details>
 <summary>What does <code>optimization_priority</code> mean?</summary>
 <br>
 
 `optimization_priority = "PRICE"` means that TensorPool will search for the cheapest instance types across all cloud providers.
+
 `optimization_priority = "TIME"` means that TensorPool will search for the fastest instance types (best GPU) across all cloud providers.
+
 `cloud` or `region` can be specified to limit the search to a specific cloud provider or region.
+</details>
+
+<details>
+<summary>What GPUs are supported?</summary>
+<br>
+Currently T4s and L4s are supported. More GPUs are coming soon!
+</details>
+
+<details>
+<summary>What cloud providers are supported?</summary>
+<br>
+Currently GCP and AWS are supported. More cloud providers are coming soon!
 </details>
 
 ## Best Practices
 - **Save your outputs**: Always save your model weights and outputs to disk, you'll get them back at the end of the job!
   - Don't save files outside of your project directory, you won't be able to get them back
 - **Download datasets and big files within your script**: All TensorPool machines are equipped 10+Gb/s networking and 100Gb of storage, so large files can be downloaded faster if done within your script
+- **Run from the root of your project**: TensorPool will send your project directory to the cloud, so sure you're in the right directory. Don't run from your home directory or a subdirectory!
 
 ## Getting Help
 - [tensorpool.dev](https://tensorpool.dev)
