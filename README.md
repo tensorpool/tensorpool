@@ -1,12 +1,17 @@
-# TensorPool
+<h1 style="color: #613FE7">TensorPool</h1>
 
 TensorPool is the easiest way to execute ML jobs in the cloud for >50% cheaper. No infrastructure setup needed, just one command to use cloud GPUs.
 
-
-- **>50% cheaper than traditional clouds**: Through automatic spot node recovery tech, TensorPool gives you the prices savings of spot nodes with the reliability of on demand instances by resuming jobs if they get interupted.
+## Features
+- **>50% cheaper than traditional cloud providers**: TensorPool's automatic spot node recovery, you get the prices savings of spot nodes with the reliability of on demand instances.
+  - Tensorpool will automatically resume your job if it gets interrupted. No code changes required.
 - **Natural Language Job Configuration**: Describe your ML training or inference job in plain English
+  - Or do it manually if you prefer!
 - **Zero Infrastructure Setup**: No GCP, No AWS, No Docker, no Kubernetes, no cloud configuration or cloud accounts required
-- **Optimization Priorities**: optimize for price or time. We search for the cheapest instance types across several cloud providers (currently GCP and AWS, more coming soon!)
+  - Use GCP or AWS without setting up an account
+- **Optimization Priorities**: optimize for price or time.
+  - We search for the cheapest instance types across several cloud providers (currently GCP and AWS, more coming soon!)
+
 
 
 ## Prerequisites
@@ -29,11 +34,11 @@ tensorpool train my model for 100 epochs on an L4
 Behind the scenes TensorPool:
 1. Generates a job configuration (`tp-config.toml`) based off of your project directory
 2. Let's you review and modify the configuration
-3. Upload and execute it in the cloud on GPUs for >50% cheaper than on-demand instances on traditional cloud providers
+3. Uploads and executes it in the cloud on GPUs for >50% cheaper than on-demand instances on traditional cloud providers
 
+Prefer to not use natural language? You can also manually define a `tp-config.toml` yourself!
 
-While TensorPool lets you define your job in natural language, you can also manually define a `tp-config.toml` yourself.
-See [Configuration](#configuration) for details on the tp-config.toml format.
+See [Configuration](#configuration) for details the schema.
 
 ## Example Usage
 
@@ -60,7 +65,8 @@ More examples can be found [here](https://github.com/tensorpool/tensorpool/tree/
 ## Configuration
 
 The heart of Tensorpool is the `tp-config.toml` which can automatically be created for you, or you can create it yourself!
-When you run `tensorpool {your command}`, TensorPool will automatically generate a `tp-config.toml` file in your project directory.
+
+When you run `tensorpool <your command>`, TensorPool will automatically generate a `tp-config.toml` file in your project directory.
 
 Here's a complete list of all fields supported in the `tp-config.toml`:
 ```toml
@@ -105,10 +111,14 @@ Currently GCP and AWS are supported. More cloud providers are coming soon!
 </details>
 
 ## Best Practices
-- **Save your outputs**: Always save your model weights and outputs to disk, you'll get them back at the end of the job!
+- **Save your outputs**
+  - Always save your model weights and outputs to disk, you'll get them back at the end of the job!
   - Don't save files outside of your project directory, you won't be able to get them back
-- **Download datasets and big files within your script**: All TensorPool machines are equipped 10+Gb/s networking and 100Gb of storage, so large files can be downloaded faster if done within your script
-- **Run from the root of your project**: TensorPool will send your project directory to the cloud, so sure you're in the right directory. Don't run from your home directory or a subdirectory!
+- **Download datasets and big files within your script**
+  - All TensorPool machines are equipped 10+Gb/s networking and 100Gb of storage, so large files can be downloaded faster if done within your script
+- **Run from the root of your project**
+  - TensorPool will send your project directory to the cloud, so sure you're in the right directory
+  - Don't run from your home directory or a subdirectory!
 
 ## Getting Help
 - [tensorpool.dev](https://tensorpool.dev)
