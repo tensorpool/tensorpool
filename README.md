@@ -23,7 +23,7 @@ pip install tensorpool
 ```
 
 ## Quick Start
-TensorPool uses natural language to understand and configure your ML jobs.
+TensorPool uses natural language to understand and orchastrate your ML jobs.
 
 Simply describe what you want to do:
 
@@ -117,7 +117,7 @@ Currently GCP and AWS are supported. More cloud providers are coming soon!
 - **Download datasets and big files within your script**
   - All TensorPool machines are equipped 10+Gb/s networking and 100Gb of storage, so large files can be downloaded faster if done within your script
 - **Run from the root of your project**
-  - TensorPool will send your project directory to the cloud, so sure you're in the right directory
+  - TensorPool will send your project directory to the cloud, so make sure you're in the right directory
   - Don't run from your home directory or a subdirectory!
 
 ## Getting Help
