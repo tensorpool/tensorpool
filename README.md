@@ -1,4 +1,4 @@
-<h1 style="color: #613FE7">TensorPool</h1>
+# TensorPool
 
 TensorPool is the easiest way to execute ML jobs in the cloud for >50% cheaper. No infrastructure setup needed, just one command to use cloud GPUs.
 
@@ -11,8 +11,6 @@ TensorPool is the easiest way to execute ML jobs in the cloud for >50% cheaper. 
   - Use GCP or AWS without setting up an account
 - **Optimization Priorities**: optimize for price or time.
   - We search for the cheapest instance types across several cloud providers (currently GCP and AWS, more coming soon!)
-
-
 
 ## Prerequisites
 1. Create an account at [tensorpool.dev](https://tensorpool.dev)
@@ -55,7 +53,7 @@ tensorpool train in AWS us-east-1 using an L4
 tensorpool run with a learning rate of 0.9 and save my weights
 ```
 ```bash
-# Making your own tp-config.toml? Just do:
+# Prefer to make your own tp-config.toml? Just do:
 tensorpool run
 ```
 Check your jobs and their outputs on the [dashboard](https://tensorpool.dev/dashboard)
@@ -71,7 +69,8 @@ When you run `tensorpool <your command>`, TensorPool will automatically generate
 Here's a complete list of all fields supported in the `tp-config.toml`:
 ```toml
 commands = [
-    # List of commands to run for the job
+    # List of commands to run for the job as if you were starting from a fresh virtual environment
+    "pip install -r requirements.txt",
     "python main.py",
 ]
 optimization_priority = "PRICE"  # Either "PRICE" or "TIME".
@@ -111,6 +110,8 @@ Currently GCP and AWS are supported. More cloud providers are coming soon!
 </details>
 
 ## Best Practices
+- **Use commands like you're starting from scratch**
+  - TensorPool executes your job in a fresh environment - include all setup commands like installing dependencies, downloading data, etc
 - **Save your outputs**
   - Always save your model weights and outputs to disk, you'll get them back at the end of the job!
   - Don't save files outside of your project directory, you won't be able to get them back
