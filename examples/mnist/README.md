@@ -14,7 +14,10 @@ pip install -r requirements.txt
 
 Generated `tp-config.toml`:
 ```toml
-commands = [ "python mnist.py --epochs 100 --save-model",]
+commands = [
+    "pip install -r requirements.txt",
+    "python mnist.py --epochs 100 --save-model",
+]
 optimization_priority = "PRICE"
 gpu = "T4"
 ```
@@ -26,7 +29,10 @@ This will run your job on the cheapest T4 instance across all cloud providers an
 
 Generated `tp-config.toml`:
 ```toml
-commands = [ "python mnist.py",]
+commands = [
+    "pip install -r requirements.txt",
+    "python mnist.py",
+]
 optimization_priority = "PRICE"
 gpu = "L4"
 cloud = "AWS"
@@ -42,7 +48,10 @@ For this example you'll want to save your weights as well, otherwise you'll lose
 
 Generated `tp-config.toml`:
 ```toml
-commands = [ "python mnist.py --dry-run --no-cuda",]
+commands = [
+    "pip install -r requirements.txt",
+    "python mnist.py --dry-run --no-cuda",
+]
 optimization_priority = "PRICE"
 ```
 Dry runs are useful for testing your setup and code without doing a full training run.
@@ -55,7 +64,10 @@ TensorPool will run your job on the cheapest instance across all cloud providers
 
 Generated `tp-config.toml`:
 ```toml
-commands = [ "python mnist.py --batch-size 128 --lr 0.9",]
+commands = [
+    "pip install -r requirements.txt",
+    "python mnist.py --batch-size 128 --lr 0.9",
+]
 optimization_priority = "TIME"
 ```
 This will run training on the fastest available instance across all cloud providers and regions.
