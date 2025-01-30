@@ -5,12 +5,20 @@ from typing import Final, Optional, List, Dict
 import requests
 from tqdm import tqdm
 import toml
+from toml.encoder import TomlEncoder
 import importlib.metadata
 
 # ENGINE: Final = "http://localhost:8000"
 ENGINE: Final = "https://engine.tensorpool.dev"
 
-IGNORE_FILE_SUFFIXES: Final = {"venv", ".git", "DS_Store", "__pycache__", ".idea", ".vscode", "node_modules"}
+IGNORE_FILE_SUFFIXES: Final = {
+    "venv",
+    "DS_Store",
+    "__pycache__",
+    ".idea",
+    ".vscode",
+    "node_modules",
+}
 
 def get_tensorpool_key():
     """Get API key from env var first, then .env in cwd"""
@@ -78,7 +86,7 @@ def health_check() -> (bool, str):
         response = requests.post(
             f"{ENGINE}/health",
             json={"key": key, "package_version": version},
-            timeout=5,
+            timeout=10,
         )
         try:
             data = response.json()
@@ -105,7 +113,7 @@ def health_check() -> (bool, str):
         return (False, f"Unexpected error during health check: {str(e)}")
 
 
-def get_file_paths():
+def get_proj_paths():
     """
     Returns a list of all file paths in the project directory.
     """
@@ -135,127 +143,33 @@ def get_file_contents(file_path: str) -> str:
         contents += f.read()
     return contents.strip()
 
-
-def count_tokens(s: str) -> int:
+def is_utf8_encoded(file_path: str) -> bool:
     """
-    Estimates the number of tokens in a string.
+    Check if a file is UTF-8 encoded
     """
-    return len(s) // 4
-
-
-def create_tp_reqs(
-    tmp_dir: str, req_output_filename: Optional[str] = "tp-requirements.txt"
-) -> str:
-    """
-    Creates a reproducible requirements file by ensuring all packages and their
-    exact versions are on PyPI, without relying on the experimental 'pip index'.
-    """
-    output_file = os.path.join(tmp_dir, req_output_filename)
-    temp_req_in = os.path.join(tmp_dir, "requirements.in")
-
-    # Prepare a list for validated requirements pinned to exact versions
-    validated_reqs = []
-
     try:
-        #  Gather current environment with pip freeze
-        freeze_result = subprocess.run(
-            ["pip", "freeze"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        with open(file_path, "r", encoding="utf-8") as f:
+            f.read()
+        return True
+    except UnicodeDecodeError:
+        return False
 
-        def is_version_on_pypi(pkg_name: str, version: str) -> bool:
-            """
-            Checks if the given package and exact version exist on PyPI via PyPI's JSON API.
-            """
-            try:
-                url = f"https://pypi.org/pypi/{pkg_name}/json"
-                resp = requests.get(url, timeout=10)
-                if resp.status_code != 200:
-                    return False
-
-                data = resp.json()
-                if "releases" not in data:
-                    return False
-
-                return version in data["releases"]
-            except Exception as e:
-                print(f"Error verifying on PyPI: {pkg_name}=={version}: {e}")
-                return False
-
-        # Parse lines, ignoring editable/git references
-        for line in freeze_result.stdout.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            # Skip editable or local references
-            if line.startswith("-e ") or "git+" in line or "@" in line:
-                # print(f"Skipping non-PyPI requirement: {line}")
-                continue
-
-            # Extract package name and version when pinned with "=="
-            if "==" in line:
-                pkg_name, version = line.split("==", 1)
-                pkg_name = pkg_name.strip()
-                version = version.strip()
-
-                # Check PyPI for the version
-                if is_version_on_pypi(pkg_name, version):
-                    validated_reqs.append(f"{pkg_name}=={version}")
-                # else:
-                # print(f"Warning: {pkg_name}=={version} not found on PyPI; skipping.")
-
-        if not validated_reqs:
-            raise RuntimeError(
-                "No valid PyPI packages found to include in requirements."
-            )
-
-        # Step 4: Create a minimal requirements.in with validated pins
-        with open(temp_req_in, "w") as f:
-            for req in sorted(validated_reqs):
-                f.write(req + "\n")
-
-        # Step 5: Use pip-compile to finalize pinned dependencies
-        compile_cmd = [
-            "pip-compile",
-            "--allow-unsafe",
-            "--resolver=backtracking",
-            temp_req_in,
-            "--output-file",
-            output_file,
-        ]
-        subprocess.run(
-            compile_cmd,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        assert os.path.exists(output_file), (
-            "Failed to resolve project requirements. Ensure all packages in your envoirnment are on PyPI."
-        )
-
-        return output_file
-
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to generate requirements: {e.stderr}") from e
-
-
-def create_tp_job_script(tmp_dir: str, cmds: List[str]) -> str:
+def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
     """
-    Create a tp-run.txt script for the project directory, saved to the tmp directory.
+    Constructs the project context
+    Args:
+        file_paths: The paths to the files in the project
+    Returns:
+        A tuple containing the a list of the project directory files and a dict of the file contents
     """
-    job_file = os.path.join(tmp_dir, "tp-run.txt")
-    with open(job_file, "w") as f:
-        for cmd in cmds:
-            f.write(f"{cmd}\n")
+    assert len(file_paths) > 0, "No files found in the project directory, are you in the right directory?"
 
-    assert os.path.exists(job_file), f"Job script not created: {job_file}"
+    CTX_IGNORE_SUFFIXES = {"tp-config.toml"}
+    filtered_paths = [f for f in file_paths if is_utf8_encoded(f) and not any(f.endswith(i) for i in CTX_IGNORE_SUFFIXES)]
 
-    return job_file
+    filtered_file_contents: Dict[str, str] = {f: get_file_contents(f) for f in filtered_paths}
 
+    return file_paths, filtered_file_contents
 
 def create_proj_tarball(tmp_dir: str) -> str:
     """
@@ -274,19 +188,6 @@ def create_proj_tarball(tmp_dir: str) -> str:
                     continue
                 item_path = os.path.join(cwd, item)
                 tar.add(item_path, arcname=item)
-
-            req_file = os.path.join(tmp_dir, "tp-requirements.txt")
-            job_file = os.path.join(tmp_dir, "tp-run.txt")
-
-            if os.path.isfile(req_file):
-                tar.add(req_file, arcname="tp-requirements.txt")
-            else:
-                Warning(f"{req_file} does not exist and will not be included.")
-
-            if os.path.isfile(job_file):
-                tar.add(job_file, arcname="tp-run.txt")
-            else:
-                Warning(f"{job_file} does not exist and will not be included.")
 
         assert os.path.exists(tarball_path), "Tarball was not created successfully"
 
@@ -324,8 +225,20 @@ def upload_with_progress(file_path, signed_url):
         )
         return False
 
+class TomlNewlineArrayEncoder(TomlEncoder):
+    def __init__(self, _dict=dict, preserve=False):
+        super(TomlNewlineArrayEncoder, self).__init__(_dict, preserve)
 
-def dump_json_to_tp_toml(json: Dict) -> str:
+    def dump_list(self, v):
+        items = [self.dump_value(item) for item in v]
+        # multiline array
+        retval = "[\n"
+        retval += ",\n".join("  " + x for x in items)
+        retval += "\n]"
+        return retval
+
+
+def dump_tp_toml(json: Dict) -> str:
     """
     Convert a JSON object to a TOML string and dumps to tp-config.toml in the cwd
     Arguments:
@@ -333,9 +246,9 @@ def dump_json_to_tp_toml(json: Dict) -> str:
     Returns:
         The filepath to the created TOML file
     """
-    toml_str = toml.dumps(json)
-    with open("tp-config.toml", "w+") as f:
-        f.write(toml_str)
+
+    with open("tp-config.toml", "w") as f:
+        toml.dump(json, f, encoder=TomlNewlineArrayEncoder())
 
     tp_config_path = os.path.join(os.getcwd(), "tp-config.toml")
 
@@ -343,27 +256,6 @@ def dump_json_to_tp_toml(json: Dict) -> str:
         raise FileNotFoundError("tp-config.toml was not created successfully")
 
     return tp_config_path
-
-
-# TODO: remove this eventually
-# This should just check if the proper keys exist and the types of the values, not the actual values
-def soft_validate_config(config: Dict):
-    """
-    Validate the a job configuration
-    """
-    required_fields = {"commands", "optimization_priority"}
-    if not all(field in config for field in required_fields):
-        missing = required_fields - set(config.keys())
-        raise ValueError(f"Missing required fields: {missing}")
-
-    if not isinstance(config["commands"], list):
-        raise ValueError("commands must be a list")
-    if not all(isinstance(cmd, str) for cmd in config["commands"]):
-        raise ValueError("all commands must be strings")
-
-    if not isinstance(config["optimization_priority"], str):
-        raise ValueError("optimization_priority must be a string")
-
 
 def gen_job_metadata() -> Dict:
     """
@@ -398,10 +290,6 @@ def translate_job(query: str, dir_ctx: List[str], file_ctx: Dict[str, str]) -> D
         "Directory context cannot be None or empty"
     )
 
-    # Rougly check if under 900k tokens
-    if count_tokens(query) > 9e6:
-        raise RuntimeError("Project is too large to process")
-
     headers = {"Content-Type": "application/json"}
     payload = {
         "key": os.environ["TENSORPOOL_KEY"],
@@ -410,6 +298,9 @@ def translate_job(query: str, dir_ctx: List[str], file_ctx: Dict[str, str]) -> D
         "file_ctx": file_ctx,
     }
     # print("Payload:", payload)
+
+    # TODO: better capture failed translation
+    # TODO: check if proj too large
 
     try:
         response = requests.post(
@@ -438,7 +329,6 @@ def submit_job(res: Dict, tp_config: Dict) -> str:
     Output:
         The link to the job
     """
-    soft_validate_config(tp_config)
 
     merged = {**res, **tp_config}
     merged.pop("upload_url", None)  # Don't need the upload url at this point
@@ -446,7 +336,7 @@ def submit_job(res: Dict, tp_config: Dict) -> str:
     merged.pop("is_valid_job", None)
 
     headers = {"Content-Type": "application/json"}
-    payload = {"key": os.environ["TENSORPOOL_KEY"], "config": merged}
+    payload = {"key": os.environ["TENSORPOOL_KEY"], "tp-config": merged}
 
     try:
         response = requests.post(
