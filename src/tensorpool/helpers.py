@@ -266,7 +266,7 @@ def gen_job_metadata() -> Dict:
 
     try:
         response = requests.post(
-            f"{ENGINE}/job/gen", json=payload, headers=headers, timeout=10
+            f"{ENGINE}/job/gen", json=payload, headers=headers, timeout=30
         )
         response.raise_for_status()
         return response.json()
@@ -307,7 +307,7 @@ def translate_job(query: str, dir_ctx: List[str], file_ctx: Dict[str, str]) -> D
             f"{ENGINE}/translate",
             json=payload,
             headers=headers,
-            timeout=30,  # limit is quite high...
+            timeout=60, # limit is quite high...
         )
         response.raise_for_status()
         return response.json()
