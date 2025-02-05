@@ -38,6 +38,9 @@ Prefer to not use natural language? You can also manually define a `tp-config.to
 
 See [Configuration](#configuration) for details the schema.
 
+## Demo Video
+[![TensorPool Llama 3 Inference](https://img.youtube.com/vi/QM6LHB-nLsE/0.jpg)](https://www.youtube.com/watch?v=QM6LHB-nLsE)
+
 ## Example Usage
 
 ```bash
