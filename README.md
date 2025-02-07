@@ -3,10 +3,10 @@
 TensorPool is the easiest way to execute ML jobs in the cloud for >50% cheaper. No infrastructure setup needed, just one command to use cloud GPUs.
 
 ## Features
-- **>50% cheaper than traditional cloud providers**: TensorPool's automatic spot node recovery, you get the prices savings of spot nodes with the reliability of on demand instances.
+- **>50% cheaper than traditional cloud providers**: With TensorPool's automatic spot node recovery, you get the prices savings of spot nodes with the reliability of on demand instances.
   - Tensorpool will automatically resume your job if it gets interrupted. No code changes required.
-- **Natural Language Job Configuration**: Describe your ML training or inference job in plain English
-  - Or do it manually if you prefer!
+- **Job Configuration Autogeneration**: TensorPool can generate a job configuration file for you from natural language
+  - Or create a `tp-config.toml` manually if you prefer!
 - **Zero Infrastructure Setup**: No GCP, No AWS, No Docker, no Kubernetes, no cloud configuration or cloud accounts required
   - Use GCP or AWS without setting up an account
 - **Optimization Priorities**: optimize for price or time.
@@ -24,19 +24,18 @@ pip install tensorpool
 TensorPool uses natural language to understand and orchestrate your ML jobs.
 
 Simply describe what you want to do:
-
 ```bash
 tensorpool train my model for 100 epochs on an L4
 ```
 
 Behind the scenes TensorPool:
-1. Generates a job configuration (`tp-config.toml`) based off of your project directory
+1. Automatically generates a job configuration (`tp-config.toml`) based off of your project
 2. Let's you review and modify the configuration
 3. Uploads and executes it in the cloud on GPUs for >50% cheaper than on-demand instances on traditional cloud providers
 
 Prefer to not use natural language? You can also manually define a `tp-config.toml` yourself!
 
-See [Configuration](#configuration) for details the schema.
+See [Configuration](#configuration) for a specification of the schema.
 
 ## Demo Video
 [![TensorPool Llama 3 Inference](https://img.youtube.com/vi/QM6LHB-nLsE/0.jpg)](https://www.youtube.com/watch?v=QM6LHB-nLsE)
@@ -123,6 +122,10 @@ Currently GCP and AWS are supported. More cloud providers are coming soon!
 - **Run from the root of your project**
   - TensorPool will send your project directory to the cloud, so make sure you're in the right directory
   - Don't run from your home directory or a subdirectory!
+- **Don't require stdin**
+  - TensorPool runs your job in the background, so don't require any input from stdin
+    - The most common example of this is `input()` in Python
+  - If you need to pass arguments to your script, use command line arguments or environment variables
 
 ## Getting Help
 - [tensorpool.dev](https://tensorpool.dev)
