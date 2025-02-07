@@ -21,7 +21,7 @@ pip install tensorpool
 ```
 
 ## Quick Start
-TensorPool uses natural language to understand and orchastrate your ML jobs.
+TensorPool uses natural language to understand and orchestrate your ML jobs.
 
 Simply describe what you want to do:
 
