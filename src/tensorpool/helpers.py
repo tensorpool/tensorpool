@@ -123,7 +123,7 @@ def get_proj_paths():
     """
     # TODO: make this use shouldignore
     files = [
-        os.path.join(dirpath, f)
+        os.path.normpath(os.path.join(dirpath, f))
         for (dirpath, dirnames, filenames) in os.walk(".")
         if not any(i in dirpath for i in IGNORE_FILE_SUFFIXES)
         for f in filenames
@@ -614,7 +614,7 @@ def fetch_dashboard() -> str:
 
 def job_pull(
     job_id: Optional[str], snapshot: Optional[dict] = None
-) -> Tuple[dict[str, str], str]:
+) -> Tuple[Dict[str, str], str]:
     """
     Given a job ID, fetch the job's output files that changed during the job.
     Returns a download map and a message.
@@ -655,7 +655,7 @@ def job_pull(
     return download_map, msg
 
 
-def download_files(download_map: dict[str, str]) -> bool:
+def download_files(download_map: Dict[str, str]) -> bool:
     """
     Given a download map of file paths to signed GET URLs, download each file in parallel.
     If the same files exists locally, append a suffix to the filename.

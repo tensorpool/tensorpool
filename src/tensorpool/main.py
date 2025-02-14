@@ -191,7 +191,7 @@ def pull(job_id):
 
     if not download_success:
         print(
-            "Failed to download job files\nPlease try again or visit https://app.tensorpool.dev/dashboard\nContact team@tensorpool.dev if this persists"
+            "Failed to download job files\nPlease try again or visit https://dashboard.tensorpool.dev/dashboard\nContact team@tensorpool.dev if this persists"
         )
         return
 

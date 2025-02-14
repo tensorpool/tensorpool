@@ -1,6 +1,6 @@
 [project]
 name = "tensorpool"
-version = "1.0.0rc1"
+version = "1.0.0"
 description = "TensorPool is the easiest way to execute ML jobs on cloud GPUs."
 readme = "README.md"
 requires-python = ">=3.8"
