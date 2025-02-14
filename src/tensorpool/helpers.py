@@ -10,8 +10,8 @@ import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
 
-ENGINE: Final = "http://localhost:8000"
-# ENGINE: Final = "https://engine.tensorpool.dev"
+# ENGINE: Final = "http://localhost:8000"
+ENGINE: Final = "https://engine.tensorpool.dev"
 
 # TODO: deprecate, should all be in tpignore
 IGNORE_FILE_SUFFIXES: Final = {
@@ -92,6 +92,7 @@ def health_check() -> (bool, str):
             json={"key": key, "package_version": version},
             timeout=15,
         )
+        # TODO: status code before res parse? if res json parse fails. do for other fn too
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
@@ -255,7 +256,7 @@ def dump_tp_toml(json: Dict, path: str) -> bool:
     return True
 
 
-def job_init(tp_config, project_state_snapshot) -> Dict:
+def job_init(tp_config, project_state_snapshot, skip_cache=False) -> Dict:
     """
     Initialize a job
     """
@@ -267,11 +268,15 @@ def job_init(tp_config, project_state_snapshot) -> Dict:
         "key": os.environ["TENSORPOOL_KEY"],
         "tp-config": tp_config,
         "snapshot": project_state_snapshot,
+        "skip_cache": skip_cache,
     }
 
     try:
         response = requests.post(
-            f"{ENGINE}/job/init", json=payload, headers=headers, timeout=30
+            f"{ENGINE}/job/init",
+            json=payload,
+            headers=headers,
+            timeout=120,  # Projects with many files / large datasets take a long time to initialize
         )
         # response.raise_for_status()
         return response.json()

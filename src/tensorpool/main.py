@@ -118,7 +118,7 @@ def gen_tp_config(prompt):
     return
 
 
-def run(tp_config_path, detach=False):
+def run(tp_config_path, skip_cache=False, detach=False):
     assert os.path.exists(tp_config_path), f"{tp_config_path} not found"
 
     with Spinner(text="Indexing project..."):
@@ -126,7 +126,8 @@ def run(tp_config_path, detach=False):
         project_state_snapshot = snapshot_proj_state()
 
     with Spinner(text="Initializing job..."):
-        job_init_res = job_init(tp_config, project_state_snapshot)
+        # This can take a while for big projects...
+        job_init_res = job_init(tp_config, project_state_snapshot, skip_cache)
         status = job_init_res.get("status", None)
         message = job_init_res.get("message", None)
 
@@ -234,6 +235,11 @@ def main():
         "tp_config_path", nargs="?", help="Path to a tp.[config].toml file"
     )
     run_parser.add_argument(
+        "--skip-cache",
+        action="store_true",
+        help="Don't check your job cache for previously uploaded files",
+    )
+    run_parser.add_argument(
         "--detach", action="store_true", help="Run the job in the background"
     )
 
@@ -313,7 +319,7 @@ def main():
                     except ValueError:
                         print("Please enter a number")
 
-        return run(args.tp_config_path, args.detach)
+        return run(args.tp_config_path, args.skip_cache, args.detach)
     elif args.command == "listen":
         return listen(args.job_id)
     elif args.command == "pull":
