@@ -3,9 +3,20 @@ import threading
 import itertools
 import time
 
+frames = [
+    "▐|\\________▌",
+    "▐__|\\______▌",
+    "▐____|\\____▌",
+    "▐______|\\__▌",
+    "▐________|\\▌",
+    "▐_______/|_▌",
+    "▐_____/|___▌",
+    "▐___/|_____▌",
+    "▐/|________▌"
+]
 
 class Spinner:
-    def __init__(self, text="", spin_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
+    def __init__(self, text="", spin_chars=frames):
         self.text = text
         self.spin_chars = spin_chars
         self.spinning = False
@@ -20,7 +31,7 @@ class Spinner:
             if self.is_tty:
                 self._stream.write(f"\r{char} {self.text}")
                 self._stream.flush()
-            time.sleep(0.1)
+            time.sleep(0.213)
 
     def __enter__(self):
         self.start()
@@ -43,6 +54,8 @@ class Spinner:
             self.spinner_thread.join()
         if self.is_tty:
             self._stream.write("\r")
-            self._stream.write(" " * (len(self.text) + 2))
+            # Account for maximum spinner width + text + spacing
+            max_spinner_width = max(len(frame) for frame in self.spin_chars)
+            self._stream.write(" " * (max_spinner_width + len(self.text) + 1))
             self._stream.write("\r")
             self._stream.flush()

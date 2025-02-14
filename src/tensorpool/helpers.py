@@ -1,16 +1,19 @@
 import os
-import tarfile
-import subprocess
-from typing import Final, Optional, List, Dict
+import time
+from typing import Final, Optional, List, Dict, Tuple
 import requests
 from tqdm import tqdm
 import toml
 from toml.encoder import TomlEncoder
 import importlib.metadata
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 
-# ENGINE: Final = "http://localhost:8000"
-ENGINE: Final = "https://engine.tensorpool.dev"
 
+ENGINE: Final = "http://localhost:8000"
+# ENGINE: Final = "https://engine.tensorpool.dev"
+
+# TODO: deprecate, should all be in tpignore
 IGNORE_FILE_SUFFIXES: Final = {
     "venv",
     "DS_Store",
@@ -19,6 +22,7 @@ IGNORE_FILE_SUFFIXES: Final = {
     ".vscode",
     "node_modules",
 }
+
 
 def get_tensorpool_key():
     """Get API key from env var first, then .env in cwd"""
@@ -86,7 +90,7 @@ def health_check() -> (bool, str):
         response = requests.post(
             f"{ENGINE}/health",
             json={"key": key, "package_version": version},
-            timeout=10,
+            timeout=15,
         )
         try:
             data = response.json()
@@ -117,6 +121,7 @@ def get_proj_paths():
     """
     Returns a list of all file paths in the project directory.
     """
+    # TODO: make this use shouldignore
     files = [
         os.path.join(dirpath, f)
         for (dirpath, dirnames, filenames) in os.walk(".")
@@ -135,13 +140,23 @@ def get_file_contents(file_path: str) -> str:
         file_path: The path to the file
     Returns:
         The contents of the file
+    Raises:
+        FileNotFoundError: If the file is not found
     """
-    contents = ""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
 
-    assert os.path.exists(file_path), f"File not found: {file_path}"
-    with open(file_path, "r") as f:
-        contents += f.read()
-    return contents.strip()
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            contents = f.read()
+        return contents.strip()
+    except UnicodeDecodeError:
+        # Fallback to read in binary mode and attempt to decode with error handling
+        # TODO: test this
+        with open(file_path, "rb") as f:
+            raw_contents = f.read()
+        return raw_contents.decode("utf-8", errors="replace").strip()
+
 
 def is_utf8_encoded(file_path: str) -> bool:
     """
@@ -154,6 +169,7 @@ def is_utf8_encoded(file_path: str) -> bool:
     except UnicodeDecodeError:
         return False
 
+
 def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
     """
     Constructs the project context
@@ -162,68 +178,50 @@ def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
     Returns:
         A tuple containing the a list of the project directory files and a dict of the file contents
     """
-    assert len(file_paths) > 0, "No files found in the project directory, are you in the right directory?"
+    assert len(file_paths) > 0, (
+        "No files found in the project directory, are you in the right directory?"
+    )
 
-    CTX_IGNORE_SUFFIXES = {"tp-config.toml"}
-    filtered_paths = [f for f in file_paths if is_utf8_encoded(f) and not any(f.endswith(i) for i in CTX_IGNORE_SUFFIXES)]
+    filtered_paths = [
+        f
+        for f in file_paths
+        if is_utf8_encoded(f) and not any(f.endswith(i) for i in IGNORE_FILE_SUFFIXES)
+    ]
 
-    filtered_file_contents: Dict[str, str] = {f: get_file_contents(f) for f in filtered_paths}
+    filtered_file_contents: Dict[str, str] = {
+        f: get_file_contents(f) for f in filtered_paths
+    }
 
     return file_paths, filtered_file_contents
 
-def create_proj_tarball(tmp_dir: str) -> str:
+
+# TODO: ignore from tp config
+
+
+# def should_ignore(path: str, ignore_patterns: set[str]) -> bool:
+#     """
+#     Check if path matches any ignore patterns.
+#     """
+#     path = Path(path)
+#     name = path.name
+
+#     for pattern in ignore_patterns:
+#         # Handle both file/dir names and full paths
+#         if fnmatch.fnmatch(name, pattern):
+#             return True
+#         if fnmatch.fnmatch(str(path), pattern):
+#             return True
+#     return False
+
+
+def load_tp_config(path: str) -> Optional[Dict]:
     """
-    Create a tarball of the project directory.
+    Load a tp config from a file
     """
-    cwd = os.getcwd()
-    tarball_path = os.path.join(tmp_dir, "proj.tgz")
-    tarball_name = os.path.basename(tarball_path)
+    assert os.path.exists(path), f"File not found: {path}"
+    config = toml.load(path)
+    return config
 
-    try:
-        with tarfile.open(tarball_path, "w:gz") as tar:
-            for item in os.listdir(cwd):
-                if item == tarball_name:
-                    continue  # Don't add tarball to itself
-                elif any(item.endswith(i) for i in IGNORE_FILE_SUFFIXES):
-                    continue
-                item_path = os.path.join(cwd, item)
-                tar.add(item_path, arcname=item)
-
-        assert os.path.exists(tarball_path), "Tarball was not created successfully"
-
-    except Exception as e:
-        print(f"Error creating tarball: {str(e)}")
-        raise
-
-    return tarball_path
-
-
-def upload_with_progress(file_path, signed_url):
-    file_size = os.path.getsize(file_path)
-    headers = {"Content-Type": "application/x-tar"}
-
-    with open(file_path, "rb") as f:
-        with tqdm(
-            total=file_size, unit="B", unit_scale=True, desc="Uploading"
-        ) as progress_bar:
-
-            def _data_gen():
-                while True:
-                    chunk = f.read(8192)
-                    if not chunk:
-                        break
-                    yield chunk
-                    progress_bar.update(len(chunk))
-
-            response = requests.put(signed_url, data=_data_gen(), headers=headers)
-
-    if response.status_code == 200:
-        return True
-    else:
-        print(
-            f"\nUpload failed with status code {response.status_code}: {response.text}"
-        )
-        return False
 
 class TomlNewlineArrayEncoder(TomlEncoder):
     def __init__(self, _dict=dict, preserve=False):
@@ -238,43 +236,173 @@ class TomlNewlineArrayEncoder(TomlEncoder):
         return retval
 
 
-def dump_tp_toml(json: Dict) -> str:
+def dump_tp_toml(json: Dict, path: str) -> bool:
     """
-    Convert a JSON object to a TOML string and dumps to tp-config.toml in the cwd
+    Convert a tp config dict to a TOML string and dump to path
     Arguments:
         json: The Dict to convert to TOML
+        path: The path to save the TOML file
     Returns:
-        The filepath to the created TOML file
+        A boolean indicating success
     """
 
-    with open("tp-config.toml", "w") as f:
+    with open(path, "w") as f:
         toml.dump(json, f, encoder=TomlNewlineArrayEncoder())
 
-    tp_config_path = os.path.join(os.getcwd(), "tp-config.toml")
+    if not os.path.exists(path):
+        return False
 
-    if not os.path.exists(tp_config_path):
-        raise FileNotFoundError("tp-config.toml was not created successfully")
+    return True
 
-    return tp_config_path
 
-def gen_job_metadata() -> Dict:
+def job_init(tp_config, project_state_snapshot) -> Dict:
     """
-    Generate metadata for a job
+    Initialize a job
     """
+    assert tp_config is not None, "tp_config cannot be None"
+    assert project_state_snapshot is not None, "project_state_snapshot cannot be None"
+
     headers = {"Content-Type": "application/json"}
-    payload = {"key": os.environ["TENSORPOOL_KEY"]}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        "tp-config": tp_config,
+        "snapshot": project_state_snapshot,
+    }
 
     try:
         response = requests.post(
-            f"{ENGINE}/job/gen", json=payload, headers=headers, timeout=30
+            f"{ENGINE}/job/init", json=payload, headers=headers, timeout=30
         )
-        response.raise_for_status()
+        # response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Job metadata generation failed: {str(e)}")
+        # TODO: make erorr better
+        raise RuntimeError(f"Job initialization failed: {str(e)}")
 
 
-def translate_job(query: str, dir_ctx: List[str], file_ctx: Dict[str, str]) -> Dict:
+def _upload_single_file(
+    file_info: Tuple[str, str],
+) -> Tuple[bool, Tuple[str, str, str]]:
+    """Helper function to upload a single file with retries"""
+    file_path, upload_url = file_info
+    headers = {"Content-Type": "application/octet-stream"}
+    max_retries = 3
+    base_delay = 1
+
+    for retries in range(max_retries + 1):
+        try:
+            file_size = os.path.getsize(file_path)
+            with open(file_path, "rb") as f:
+                with tqdm(
+                    total=file_size,
+                    unit="B",
+                    unit_scale=True,
+                    desc=f"Uploading {os.path.basename(file_path)}{f' (attempt {retries + 1})' if retries > 0 else ''}",
+                ) as progress_bar:
+
+                    def _data_gen():
+                        while True:
+                            chunk = f.read(8192)
+                            if not chunk:
+                                break
+                            yield chunk
+                            progress_bar.update(len(chunk))
+
+                    response = requests.put(
+                        upload_url, data=_data_gen(), headers=headers
+                    )
+
+            if response.status_code == 200:
+                return True, (file_path, response.status_code, "Success")
+
+            if retries < max_retries:
+                # Exponential backoff
+                delay = base_delay * (2**retries)
+                time.sleep(delay)
+                continue
+
+            return False, (file_path, response.status_code, response.text)
+
+        except Exception as e:
+            if retries < max_retries:
+                delay = base_delay * (2**retries)
+                time.sleep(delay)
+                continue
+            return False, (file_path, "Exception", str(e))
+
+
+def upload_files(upload_map: Dict[str, str]) -> bool:
+    """
+    Given a map of file paths to signed PUT URLs, upload each file in parallel.
+    Returns True if all uploads are successful, otherwise False.
+    """
+    max_workers = min(
+        os.cpu_count() * 2 if os.cpu_count() else 6, 6
+    )  # heuristic pulled out of thin air
+    successes = []
+    failures = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_file = {
+            executor.submit(_upload_single_file, (file_path, upload_url)): file_path
+            for file_path, upload_url in upload_map.items()
+        }
+
+        for future in concurrent.futures.as_completed(future_to_file):
+            success, result = future.result()
+            if success:
+                successes.append(result[0])
+            else:
+                failures.append(result)
+
+    if failures:
+        print("\nThe following uploads failed after all retries:")
+        for path, code, text in failures:
+            print(f"- {path}: Status {code} - {text}")
+        return False
+
+    return True
+
+
+def job_submit(job_id: str, tp_config: Dict) -> Tuple[bool, str]:
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        "id": job_id,
+        "tp-config": tp_config,
+    }
+
+    try:
+        response = requests.post(
+            # TODO: change to job/submit
+            f"{ENGINE}/job/submit",
+            json=payload,
+            headers=headers,
+            timeout=60,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Job submission failed: {str(e)}\nPlease try again.")
+
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        print(response.text)
+        raise RuntimeError(
+            "Malformed response from server. Please contact team@tensorpool.dev"
+        )
+
+    res_status = res.get("status", None)
+    message = res.get("message", None)
+
+    if res_status == "success":
+        return True, message
+    else:
+        return False, f"Job submission failed\n{message}"
+
+
+def autogen_job_config(
+    query: str, dir_ctx: List[str], file_ctx: Dict[str, str]
+) -> Dict:
     """
     Send query to translate endpoint
     Args:
@@ -307,48 +435,305 @@ def translate_job(query: str, dir_ctx: List[str], file_ctx: Dict[str, str]) -> D
             f"{ENGINE}/translate",
             json=payload,
             headers=headers,
-            timeout=60, # limit is quite high...
+            timeout=60,  # limit is quite high...
         )
         response.raise_for_status()
         return response.json()
 
     except Exception as e:
         print(e)
-        # raise RuntimeError(f"Job translation failed: {str(e)}\nPlease try again or create your tp-config.toml manually.")
         raise RuntimeError(
-            "Job translation failed. Please try again or create your tp-config.toml manually."
+            "tp-config.toml autogeneration failed.\nPlease try again or create your tp-config.toml manually."
         )
 
 
-def submit_job(res: Dict, tp_config: Dict) -> str:
+def save_empty_tp_config(path: str) -> bool:
     """
-    Submit a job to the /submit-job endpoint
-    Args:
-        res: The translation response (need for job id)
-        tp_config: The user defined TensorPool configuration
-    Output:
-        The link to the job
+    Fetch the default empty tp config and save it
     """
 
-    merged = {**res, **tp_config}
-    merged.pop("upload_url", None)  # Don't need the upload url at this point
-    assert merged["is_valid_job"], "Job is not valid, we should not be here.."
-    merged.pop("is_valid_job", None)
+    # Gets the default empty tp config
+    response = requests.get(f"{ENGINE}/empty-tp-config")
+
+    if response.status_code != 200:
+        return False
+
+    with open(path, "w+") as f:
+        f.write(response.text)
+
+    return True
+
+
+def autogen_tp_config(
+    query: str, dir_ctx: List[str], file_ctx: Dict[str, str]
+) -> Tuple[bool, Dict, Optional[str]]:
+    """
+    Send query to translate endpoint
+    Args:
+        query: The query to translate to a task
+        dir_ctx: The directory context (all files in the project directory)
+        file_ctx: The file context (files and their contents)
+    Returns:
+        A tuple containing a boolean indicating success, the translated config, and an optional message
+    """
+    assert query is not None and query != "", "Query cannot be None or empty"
+    assert file_ctx is not None and file_ctx != "", (
+        "File context cannot be None or empty"
+    )
+    assert dir_ctx is not None and dir_ctx != "", (
+        "Directory context cannot be None or empty"
+    )
 
     headers = {"Content-Type": "application/json"}
-    payload = {"key": os.environ["TENSORPOOL_KEY"], "tp-config": merged}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        "query": query,
+        "dir_ctx": dir_ctx,
+        "file_ctx": file_ctx,
+    }
+    # print("Payload:", payload)
+
+    # TODO: better capture failed translation
+    # TODO: check if proj too large
 
     try:
         response = requests.post(
-            f"{ENGINE}/job/submit", json=payload, headers=headers, timeout=30
+            f"{ENGINE}/tp-config-autogen",
+            json=payload,
+            headers=headers,
+            timeout=60,  # limit is quite high...
         )
-        res = response.json()
+    except Exception as e:
+        return False, {}, str(e)
 
-        if res["status"] == "success":
-            return res["link"]
-        else:
-            print("Job submission failed.")
-            print(res["message"])
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return (
+            False,
+            {},
+            "Malformed response from server. Please contact team@tensorpool.dev",
+        )
+
+    response_status = res.get("status", None)
+    tp_config = res.get("tp-config", {})
+    message = res.get("message", None)
+
+    if response_status != "success":
+        return False, tp_config, message
+    if tp_config == {}:
+        return False, tp_config, message
+
+    return True, tp_config, message
+
+    # print(e)
+    # raise RuntimeError(
+    #     "tp-config.toml autogeneration failed.\nPlease try again or create your tp-config.toml manually."
+    # )
+
+
+def snapshot_proj_state() -> Dict[str, int]:
+    """
+    Local state snapshot of the project directory.
+    Returns a dictionary all paths and their last modified timestamps
+    """
+    files = get_proj_paths()
+    # TODO: consider if OSError is thrown on getmtime
+    return {f: os.path.getmtime(f) for f in files}
+
+
+def listen_to_job(job_id: str) -> None:
+    """Connects to job stream and prints output in real-time."""
+    headers = {"Content-Type": "application/json"}
+    payload = {"key": os.environ["TENSORPOOL_KEY"], "id": job_id}
+
+    # TODO: pull in stdout once job is succeeded
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/job/listen", json=payload, headers=headers, stream=True
+        )
+
+        if response.status_code != 200:
+            print(f"Failed to connect to job stream: {response.text}")
+            return
+
+        for line in response.iter_lines():
+            if not line:
+                continue
+            try:
+                text = line.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+
+            if text.startswith("data: "):
+                pretty = text.replace("data: ", "", 1)
+                print(pretty, flush=True)
+
+    except KeyboardInterrupt:
+        print("\nDetached from job stream")
+    except Exception as e:
+        print(f"Error while listening to job stream: {str(e)}")
+
+
+def fetch_dashboard() -> str:
+    """
+    Fetch the TensorPool dashboard URL
+    """
+
+    timezone = time.strftime("%z")
+    # print(timezone)
+
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        "timezone": timezone,  # Timezone to formate timestamps
+    }
+
+    fallback_dashboard_msg = "https://tensorpool.dev/dashboard"
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/dashboard",
+            json=payload,
+            headers=headers,
+            timeout=15,
+        )
+
+        try:
+            res = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return fallback_dashboard_msg
+
+        message = res.get("message", fallback_dashboard_msg)
+        return message
 
     except Exception as e:
-        raise RuntimeError(f"Job submission failed: {str(e)}\nPlease try again.")
+        raise RuntimeError(f"Failed to fetch dashboard URL: {str(e)}")
+
+
+def job_pull(
+    job_id: Optional[str], snapshot: Optional[dict] = None
+) -> Tuple[dict[str, str], str]:
+    """
+    Given a job ID, fetch the job's output files that changed during the job.
+    Returns a download map and a message.
+    """
+
+    assert job_id or snapshot, "A job ID or snapshot are needed to pull a job"
+
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        # can accept either a job ID or a snapshot
+        # if only a snapshot is provided, the job id will be inferred
+        "snapshot": snapshot,
+        "id": job_id,
+    }
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/job/pull", json=payload, headers=headers, timeout=15
+        )
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Job pull failed: {str(e)}")
+
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        # print(response.text)
+        raise RuntimeError(
+            "Malformed response from server while pulling job\nPlease try again or visit https://app.tensorpool.dev/dashboard\nContact team@tensorpool.dev if this persists"
+        )
+
+    status = res.get("status")
+    msg = res.get("message")
+    if status != "success":
+        return None, msg
+
+    download_map = res.get("download_map")
+    return download_map, msg
+
+
+def download_files(download_map: dict[str, str]) -> bool:
+    """
+    Given a download map of file paths to signed GET URLs, download each file in parallel.
+    If the same files exists locally, append a suffix to the filename.
+    """
+    max_workers = min(os.cpu_count() * 2 if os.cpu_count() else 6, 6)
+    successes = []
+    failures = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+
+        def _download_file(file_info):
+            file_path, url = file_info
+            headers = {"Content-Type": "application/octet-stream"}
+            max_retries = 3
+            base_delay = 1
+
+            for retries in range(max_retries + 1):
+                try:
+                    response = requests.get(url, headers=headers, stream=True)
+                    total_size = int(response.headers.get("content-length", 0))
+
+                    if os.path.exists(file_path):
+                        base, ext = os.path.splitext(file_path)
+                        counter = 1
+                        while os.path.exists(f"{base}_{counter}{ext}"):
+                            counter += 1
+                        file_path = f"{base}_{counter}{ext}"
+
+                    # Create directories for path if they don't exist
+                    dir_name = os.path.dirname(file_path)
+                    if dir_name:
+                        os.makedirs(dir_name, exist_ok=True)
+
+                    with open(file_path, "wb") as f:
+                        with tqdm(
+                            total=total_size,
+                            unit="B",
+                            unit_scale=True,
+                            desc=f"Downloading {os.path.basename(file_path)}{' (attempt ' + str(retries + 1) + ')' if retries > 0 else ''}",
+                        ) as pbar:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                                    pbar.update(len(chunk))
+
+                    if response.status_code == 200:
+                        return True, (file_path, response.status_code, "Success")
+
+                    if retries < max_retries:
+                        delay = base_delay * (2**retries)  # Exponential backoff
+                        time.sleep(delay)
+                        continue
+
+                    return False, (file_path, response.status_code, response.text)
+
+                except Exception as e:
+                    if retries < max_retries:
+                        delay = base_delay * (2**retries)
+                        time.sleep(delay)
+                        continue
+                    return False, (file_path, "Exception", str(e))
+
+        future_to_file = {
+            executor.submit(_download_file, (file_path, url)): file_path
+            for file_path, url in download_map.items()
+        }
+
+        for future in concurrent.futures.as_completed(future_to_file):
+            success, result = future.result()
+            if success:
+                successes.append(result[0])
+            else:
+                failures.append(result)
+
+    if failures:
+        print("The following downloads failed:")
+        for path, code, text in failures:
+            print(f"{path}: Status {code} - {text}")
+        return False
+
+    return True

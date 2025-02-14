@@ -1,6 +1,6 @@
 [project]
 name = "tensorpool"
-version = "0.0.2"
+version = "1.0.0rc1"
 description = "TensorPool is the easiest way to execute ML jobs on cloud GPUs."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -25,6 +25,7 @@ classifiers = [
 
 [project.scripts]
 tensorpool = "tensorpool.main:main"
+tp = "tensorpool.main:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
