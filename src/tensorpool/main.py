@@ -127,22 +127,14 @@ def run(tp_config_path, skip_cache=False, detach=False):
 
     with Spinner(text="Initializing job..."):
         # This can take a while for big projects...
-        job_init_res = job_init(tp_config, project_state_snapshot, skip_cache)
-        status = job_init_res.get("status", None)
-        message = job_init_res.get("message", None)
+        message, job_id, upload_map = job_init(
+            tp_config, project_state_snapshot, skip_cache
+        )
 
     if message:
         print(message)
-    if status != "success":
-        return
 
-    job_id = job_init_res.get("id", None)
-    if not job_id:
-        print("Error: No job ID recieved. Please contact team@tensorpool.dev")
-        return
-
-    upload_map = job_init_res.get("upload_map", None)
-    # Note: there may be no new files to upload
+    # Note: there may be no new files to upload (upload_map = {})
     upload_success = upload_files(upload_map)
 
     if not upload_success:

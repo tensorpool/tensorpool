@@ -7,11 +7,11 @@ import toml
 from toml.encoder import TomlEncoder
 import importlib.metadata
 import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # ENGINE: Final = "http://localhost:8000"
-ENGINE: Final = "https://engine.tensorpool.dev"
+ENGINE: Final = "https://engine.tensorpool.dev/"
 
 # TODO: deprecate, should all be in tpignore
 IGNORE_FILE_SUFFIXES: Final = {
@@ -102,12 +102,15 @@ def health_check() -> (bool, str):
                 False,
                 f"Received malformed response from server. Status code: {response.status_code} \nIf this persists, please contact team@tensorpool.dev",
             )
+
+        msg = data.get("message")
+
         if response.status_code == 200:
             # Valid health
-            return (True, data["message"])
+            return (True, msg)
         else:
             # Engine online, but auth or health check failure
-            return (False, data["message"])
+            return (False, msg)
     except requests.exceptions.ConnectionError as e:
         return (
             False,
@@ -256,14 +259,19 @@ def dump_tp_toml(json: Dict, path: str) -> bool:
     return True
 
 
-def job_init(tp_config, project_state_snapshot, skip_cache=False) -> Dict:
+def job_init(
+    tp_config, project_state_snapshot, skip_cache=False
+) -> Tuple[str, str, Dict]:
     """
     Initialize a job
+    Returns:
+        Tuple of an optional message, job id, and upload map
     """
-    assert tp_config is not None, "tp_config cannot be None"
-    assert project_state_snapshot is not None, "project_state_snapshot cannot be None"
+    assert tp_config is not None, "A TP config must be provided to initialize a job"
+    assert project_state_snapshot is not None, (
+        "A project state snapshot must be provided to initialize a job"
+    )
 
-    headers = {"Content-Type": "application/json"}
     payload = {
         "key": os.environ["TENSORPOOL_KEY"],
         "tp-config": tp_config,
@@ -271,102 +279,108 @@ def job_init(tp_config, project_state_snapshot, skip_cache=False) -> Dict:
         "skip_cache": skip_cache,
     }
 
+    headers = {"Content-Type": "application/json"}
+
     try:
         response = requests.post(
             f"{ENGINE}/job/init",
             json=payload,
             headers=headers,
-            timeout=120,  # Projects with many files / large datasets take a long time to initialize
+            timeout=60,  # snapshot's can be huge...
         )
-        # response.raise_for_status()
-        return response.json()
     except requests.exceptions.RequestException as e:
-        # TODO: make erorr better
         raise RuntimeError(f"Job initialization failed: {str(e)}")
+
+    if response.status_code != 200:
+        # print(response.text)
+        raise RuntimeError(
+            f"TensorPool engine returned status {response.status_code}: {response.text}"
+        )
+
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        print(response.text)
+        raise RuntimeError(
+            "Received malformed response from server. Please contact team@tensorpool.dev"
+        )
+
+    status = res.get("status")
+    id = res.get("id")
+    message = res.get("message")
+    upload_map = res.get("upload_map")
+
+    if response.status_code != 200 or status != "success":
+        return status, message, None
+
+    assert id is not None, "No job ID recieved, please contact team@tensorpool.dev"
+
+    assert upload_map is not None, (
+        "No upload map recieved, please contact team@tensporpool.dev"
+    )
+
+    return message, id, upload_map
 
 
 def _upload_single_file(
-    file_info: Tuple[str, str],
-) -> Tuple[bool, Tuple[str, str, str]]:
-    """Helper function to upload a single file with retries"""
-    file_path, upload_url = file_info
-    headers = {"Content-Type": "application/octet-stream"}
-    max_retries = 3
-    base_delay = 1
+    file: str, upload_details: dict, pbar: tqdm, max_retries: int = 3
+) -> bool:
+    """
+    Upload a single file with progress tracking.
+    Returns (success, bytes_uploaded)
+    """
+    backoff = 1
+    file_size = os.path.getsize(file)
 
-    for retries in range(max_retries + 1):
+    for attempt in range(1, max_retries + 1):
         try:
-            file_size = os.path.getsize(file_path)
-            with open(file_path, "rb") as f:
-                with tqdm(
-                    total=file_size,
-                    unit="B",
-                    unit_scale=True,
-                    desc=f"Uploading {os.path.basename(file_path)}{f' (attempt {retries + 1})' if retries > 0 else ''}",
-                ) as progress_bar:
+            with open(file, "rb") as f:
+                files = {"file": f}
+                response = requests.post(
+                    upload_details["url"], data=upload_details["fields"], files=files
+                )
 
-                    def _data_gen():
-                        while True:
-                            chunk = f.read(8192)
-                            if not chunk:
-                                break
-                            yield chunk
-                            progress_bar.update(len(chunk))
-
-                    response = requests.put(
-                        upload_url, data=_data_gen(), headers=headers
-                    )
-
-            if response.status_code == 200:
-                return True, (file_path, response.status_code, "Success")
-
-            if retries < max_retries:
-                # Exponential backoff
-                delay = base_delay * (2**retries)
-                time.sleep(delay)
-                continue
-
-            return False, (file_path, response.status_code, response.text)
-
-        except Exception as e:
-            if retries < max_retries:
-                delay = base_delay * (2**retries)
-                time.sleep(delay)
-                continue
-            return False, (file_path, "Exception", str(e))
-
-
-def upload_files(upload_map: Dict[str, str]) -> bool:
-    """
-    Given a map of file paths to signed PUT URLs, upload each file in parallel.
-    Returns True if all uploads are successful, otherwise False.
-    """
-    max_workers = min(
-        os.cpu_count() * 2 if os.cpu_count() else 6, 6
-    )  # heuristic pulled out of thin air
-    successes = []
-    failures = []
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_file = {
-            executor.submit(_upload_single_file, (file_path, upload_url)): file_path
-            for file_path, upload_url in upload_map.items()
-        }
-
-        for future in concurrent.futures.as_completed(future_to_file):
-            success, result = future.result()
-            if success:
-                successes.append(result[0])
+            if response.status_code == 204:
+                pbar.write(f"Uploaded {file}")
+                pbar.update(file_size)
+                return True
             else:
-                failures.append(result)
+                if attempt == max_retries:
+                    pbar.write(f"Failed upload {file}: {response.status_code}")
 
-    if failures:
-        print("\nThe following uploads failed after all retries:")
-        for path, code, text in failures:
-            print(f"- {path}: Status {code} - {text}")
-        return False
+        except Exception as exc:
+            if attempt == max_retries:
+                pbar
+                pbar.write(f"Exception uploading {file}: {exc}")
 
-    return True
+        time_to_wait = backoff * (2 ** (attempt - 1))
+        time.sleep(time_to_wait)
+
+    return False
+
+
+def upload_files(upload_map: Dict[str, dict]) -> bool:
+    """
+    Upload files with a single combined progress bar.
+    """
+    total_bytes = sum(os.path.getsize(f) for f in upload_map.keys())
+    max_workers = min(os.cpu_count() * 2 if os.cpu_count() else 6, 6)
+
+    with tqdm(
+        total=total_bytes,
+        unit="B",
+        unit_scale=True,
+        desc=f"Uploading {len(upload_map)} files",
+    ) as pbar:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_upload_single_file, file, upload_details, pbar): file
+                for file, upload_details in upload_map.items()
+            }
+
+            success = all(future.result() for future in as_completed(futures))
+
+    return success
 
 
 def job_submit(job_id: str, tp_config: Dict) -> Tuple[bool, str]:
@@ -379,7 +393,6 @@ def job_submit(job_id: str, tp_config: Dict) -> Tuple[bool, str]:
 
     try:
         response = requests.post(
-            # TODO: change to job/submit
             f"{ENGINE}/job/submit",
             json=payload,
             headers=headers,
@@ -393,7 +406,7 @@ def job_submit(job_id: str, tp_config: Dict) -> Tuple[bool, str]:
     except requests.exceptions.JSONDecodeError:
         print(response.text)
         raise RuntimeError(
-            "Malformed response from server. Please contact team@tensorpool.dev"
+            "Recieved malformed response from server. Please contact team@tensorpool.dev"
         )
 
     res_status = res.get("status", None)
