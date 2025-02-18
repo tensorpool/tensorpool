@@ -28,11 +28,23 @@ tp config new
 tp config train my model for 100 epochs on a T4
 ```
 
-Both approaches generate a `tp.config.toml` which you can review and modify before running your job. See [Configuration](#configuration) for more details.
+Both approaches generate a `tp.config.toml` which you can review and modify before running your job.
+
+Adjust the `tp.config.toml` to match your project. For example, a simple python project a would look like:
+
+```toml
+commands = [
+    "pip install -r requirements.txt",
+    "python main.py --epochs 100",
+]
+optimization_priority = "PRICE"
+gpu = "T4"
+```
+See [Configuration](#configuration) for more details.
 
 Now run your job!
 ```bash
-tp run
+tp run tp.config.toml
 ```
 
 More examples can be found in [tensorpool/examples](https://github.com/tensorpool/tensorpool/tree/main/examples)
