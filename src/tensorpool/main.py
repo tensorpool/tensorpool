@@ -6,7 +6,7 @@ from tensorpool.helpers import (
     get_version,
     health_check,
     load_tp_config,
-    snapshot_proj_state,
+    get_project_files,
     upload_files,
     job_init,
     job_submit,
@@ -21,6 +21,7 @@ from tensorpool.helpers import (
     download_files,
 )
 from tensorpool.spinner import Spinner
+from typing import Optional, List
 
 
 def gen_tp_config(prompt):
@@ -92,9 +93,7 @@ def gen_tp_config(prompt):
                 count += 1
 
     # Ask the user if they want this name, or if they want to specify a different name
-    print(
-        f"Enter desired name for the tp config, or press ENTER to use {tp_config_path}"
-    )
+    print(f"Enter a name for the tp config, or press ENTER to use {tp_config_path}")
     new_name = input()
     new_name = f"tp.{new_name}.toml" if new_name else None
     if new_name:
@@ -110,7 +109,9 @@ def gen_tp_config(prompt):
     with Spinner(text="Saving tp config..."):
         tp_config_save_success = dump_tp_toml(tp_config, tp_config_path)
 
-    # TODO
+    if not tp_config_save_success:
+        print(f"Failed to save tp config to {tp_config_path}")
+        return
 
     if message:
         print(message)
@@ -118,18 +119,28 @@ def gen_tp_config(prompt):
     return
 
 
-def run(tp_config_path, skip_cache=False, detach=False):
+def run(tp_config_path, use_cache: Optional[str] = None, detach: bool = False):
+    """
+    Run a job
+    use_cache is a job ID to use as a cache, if empty the last job will be used
+    """
     assert os.path.exists(tp_config_path), f"{tp_config_path} not found"
 
     with Spinner(text="Indexing project..."):
         tp_config = load_tp_config(tp_config_path)
-        project_state_snapshot = snapshot_proj_state()
+        project_files = get_project_files(tp_config.get("ignore"))
+        num_files = len(project_files)
+
+    if num_files == 0:
+        print("No files found in project. Are you in the right directory?")
+        return
+    elif num_files >= 1000:
+        # TODO: mention ignore and point to docs
+        print(f"You have {num_files} files in your project. This may take a while.")
 
     with Spinner(text="Initializing job..."):
         # This can take a while for big projects...
-        message, job_id, upload_map = job_init(
-            tp_config, project_state_snapshot, skip_cache
-        )
+        message, job_id, upload_map = job_init(tp_config, project_files, use_cache)
 
     if message:
         print(message)
@@ -159,28 +170,33 @@ def listen(job_id):
         return
 
     listen_to_job(job_id)
+    # TODO: run tp pull <job_id>
 
     return
 
 
-def pull(job_id):
+def pull(job_id, files: Optional[List[str]] = None, overwrite=False):
     # if not job_id:
     #     print("Error: Job ID required")
     #     print("Usage: tp pull <job_id>")
     #     return
+    if files and len(files) > 100:
+        print(f"{len(files)} files requested, this may take a while")
 
     with Spinner(text="Pulling job..."):
-        snapshot = None
-        if job_id is None:
-            snapshot = snapshot_proj_state()
-        download_map, msg = job_pull(job_id, snapshot)
+        download_map, msg = job_pull(job_id, files)
 
     if not download_map:
         if msg:
             print(msg)
         return
 
-    download_success = download_files(download_map)
+    num_files = len(download_map)
+    if num_files == 0:
+        print("No changed files to pull")
+        return
+
+    download_success = download_files(download_map, overwrite)
 
     if not download_success:
         print(
@@ -240,6 +256,11 @@ def main():
 
     pull_parser = subparsers.add_parser("pull", help="Pull a job")
     pull_parser.add_argument("job_id", nargs="?", help="ID of the job to pull")
+    pull_parser.add_argument("files", nargs="*", help="List of filenames to pull")
+    pull_parser.add_argument(
+        "--overwrite", action="store_true", help="Overwrite existing files"
+    )
+
     # cancel_parser = subparsers.add_parser('cancel', help='Cancel a job')
     dashboard_parser = subparsers.add_parser(
         "dashboard",
@@ -315,7 +336,8 @@ def main():
     elif args.command == "listen":
         return listen(args.job_id)
     elif args.command == "pull":
-        return pull(args.job_id)
+        # Check if job_id is a snowflake
+        return pull(args.job_id, args.files, args.overwrite)
     # elif args.command == 'cancel':
     #     return cancel()
     #

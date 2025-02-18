@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Final, Optional, List, Dict, Tuple
+from typing import Final, Optional, List, Dict, Tuple, Set
 import requests
 from tqdm import tqdm
 import toml
@@ -260,7 +260,7 @@ def dump_tp_toml(json: Dict, path: str) -> bool:
 
 
 def job_init(
-    tp_config, project_state_snapshot, skip_cache=False
+    tp_config, project_files: set, use_cache: Optional[str] = None
 ) -> Tuple[str, str, Dict]:
     """
     Initialize a job
@@ -268,16 +268,17 @@ def job_init(
         Tuple of an optional message, job id, and upload map
     """
     assert tp_config is not None, "A TP config must be provided to initialize a job"
-    assert project_state_snapshot is not None, (
-        "A project state snapshot must be provided to initialize a job"
+    assert project_files is not None, (
+        "Project files must be provided to initialize a job"
     )
 
     payload = {
         "key": os.environ["TENSORPOOL_KEY"],
         "tp-config": tp_config,
-        "snapshot": project_state_snapshot,
-        "skip_cache": skip_cache,
+        "project_files": project_files,
     }
+    if use_cache is not None:
+        payload["use_cache"] = use_cache
 
     headers = {"Content-Type": "application/json"}
 
@@ -286,23 +287,18 @@ def job_init(
             f"{ENGINE}/job/init",
             json=payload,
             headers=headers,
-            timeout=60,  # snapshot's can be huge...
+            timeout=60,
         )
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"Job initialization failed: {str(e)}")
-
-    if response.status_code != 200:
-        # print(response.text)
-        raise RuntimeError(
-            f"TensorPool engine returned status {response.status_code}: {response.text}"
-        )
 
     try:
         res = response.json()
     except requests.exceptions.JSONDecodeError:
         print(response.text)
         raise RuntimeError(
-            "Received malformed response from server. Please contact team@tensorpool.dev"
+            f"Received malformed response from server. Status code: {response.status_code}"
+            f"\nPlease contact team@tensorpool.dev if this persists."
         )
 
     status = res.get("status")
@@ -396,7 +392,7 @@ def job_submit(job_id: str, tp_config: Dict) -> Tuple[bool, str]:
             f"{ENGINE}/job/submit",
             json=payload,
             headers=headers,
-            timeout=60,
+            timeout=120,
         )
     except Exception as e:
         raise RuntimeError(f"Job submission failed: {str(e)}\nPlease try again.")
@@ -550,14 +546,24 @@ def autogen_tp_config(
     # )
 
 
-def snapshot_proj_state() -> Dict[str, int]:
+# def snapshot_proj_state() -> Dict[str, int]:
+#     """
+#     Local state snapshot of the project directory.
+#     Returns a dictionary all paths and their last modified timestamps
+#     """
+#     files = get_proj_paths()
+#     # TODO: consider if OSError is thrown on getmtime
+#     return {f: os.path.getmtime(f) for f in files}
+
+
+def get_project_files(ignore: Optional[set]) -> List[str]:
     """
-    Local state snapshot of the project directory.
-    Returns a dictionary all paths and their last modified timestamps
+    Returns a set of all files in the project directory.
     """
     files = get_proj_paths()
-    # TODO: consider if OSError is thrown on getmtime
-    return {f: os.path.getmtime(f) for f in files}
+    if ignore is None:
+        ignore = set()
+    return [f for f in files if f not in ignore]
 
 
 def listen_to_job(job_id: str) -> None:
@@ -631,27 +637,27 @@ def fetch_dashboard() -> str:
 
 
 def job_pull(
-    job_id: Optional[str], snapshot: Optional[dict] = None
+    job_id: str,
+    files: Optional[List[str]] = None,
 ) -> Tuple[Dict[str, str], str]:
     """
     Given a job ID, fetch the job's output files that changed during the job.
     Returns a download map and a message.
     """
 
-    assert job_id or snapshot, "A job ID or snapshot are needed to pull a job"
+    assert job_id, "A job ID is needed to pull a job"
 
     headers = {"Content-Type": "application/json"}
     payload = {
         "key": os.environ["TENSORPOOL_KEY"],
-        # can accept either a job ID or a snapshot
-        # if only a snapshot is provided, the job id will be inferred
-        "snapshot": snapshot,
         "id": job_id,
     }
+    if files:
+        payload["files"] = files
 
     try:
         response = requests.post(
-            f"{ENGINE}/job/pull", json=payload, headers=headers, timeout=15
+            f"{ENGINE}/job/pull", json=payload, headers=headers, timeout=60
         )
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"Job pull failed: {str(e)}")
@@ -661,7 +667,8 @@ def job_pull(
     except requests.exceptions.JSONDecodeError:
         # print(response.text)
         raise RuntimeError(
-            "Malformed response from server while pulling job\nPlease try again or visit https://app.tensorpool.dev/dashboard\nContact team@tensorpool.dev if this persists"
+            f"Malformed response from server while pulling job. Status: {response.status_code}"
+            "\nPlease try again or visit https://app.tensorpool.dev/dashboard\nContact team@tensorpool.dev if this persists"
         )
 
     status = res.get("status")
@@ -673,11 +680,12 @@ def job_pull(
     return download_map, msg
 
 
-def download_files(download_map: Dict[str, str]) -> bool:
+def download_files(download_map: Dict[str, str], overwrite: bool = False) -> bool:
     """
     Given a download map of file paths to signed GET URLs, download each file in parallel.
     If the same files exists locally, append a suffix to the filename.
     """
+
     max_workers = min(os.cpu_count() * 2 if os.cpu_count() else 6, 6)
     successes = []
     failures = []
@@ -696,11 +704,11 @@ def download_files(download_map: Dict[str, str]) -> bool:
                     total_size = int(response.headers.get("content-length", 0))
 
                     if os.path.exists(file_path):
-                        base, ext = os.path.splitext(file_path)
-                        counter = 1
-                        while os.path.exists(f"{base}_{counter}{ext}"):
-                            counter += 1
-                        file_path = f"{base}_{counter}{ext}"
+                        if overwrite:
+                            print(f"Overwriting {file_path}")
+                        else:
+                            print(f"Skipping {file_path} - file already exists")
+                            return True, (file_path, 200, "Skipped - file exists")
 
                     # Create directories for path if they don't exist
                     dir_name = os.path.dirname(file_path)
