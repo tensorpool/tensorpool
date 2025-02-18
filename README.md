@@ -28,23 +28,11 @@ tp config new
 tp config train my model for 100 epochs on a T4
 ```
 
-Both approaches generate a `tp.config.toml` which you can review and modify before running your job.
-
-Adjust the `tp.config.toml` to match your project. For example, a simple python project a would look like:
-
-```toml
-commands = [
-    "pip install -r requirements.txt",
-    "python main.py --epochs 100",
-]
-optimization_priority = "PRICE"
-gpu = "T4"
-```
-See [Configuration](#configuration) for more details.
+Both approaches generate a `tp.config.toml` which you can review and modify before running your job. See [Configuration](#configuration) for more details.
 
 Now run your job!
 ```bash
-tp run tp.config.toml
+tp run
 ```
 
 More examples can be found in [tensorpool/examples](https://github.com/tensorpool/tensorpool/tree/main/examples)
@@ -53,7 +41,7 @@ More examples can be found in [tensorpool/examples](https://github.com/tensorpoo
 - `tp run` - Execute a job
 - `tp config [prompt]` - Autogenerate a TensorPool configuration file
 - `tp config new` - Create a new empty TensorPool configuration file
-- `tp listen <job_id>` - Attach to a running job to see its output
+- `tp listen <job_id>` - Attach to a running job to see its output. You can leave & reattach at any time!
 - `tp pull` - Download outputs and changed files from your job
 - `tp dashboard` - View all your jobs and their outputs
 
@@ -132,8 +120,11 @@ Currently GCP and AWS are supported. More cloud providers are coming soon!
 
 ## Getting Help
 - [tensorpool.dev](https://tensorpool.dev)
+- [Join our Discord](https://discord.gg/Kzan7CZauT)
 - team@tensorpool.dev
 - https://x.com/TensorPool
+- # TODO: pull intermediate results
+
 
 ## Why TensorPool?
 - **Simplicity**: Use GPUs without the hassle of cloud setup, machine configuration, or quotas
