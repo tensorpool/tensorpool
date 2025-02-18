@@ -53,7 +53,8 @@ More examples can be found in [tensorpool/examples](https://github.com/tensorpoo
 - `tp run` - Execute a job
 - `tp config [prompt]` - Autogenerate a TensorPool configuration file
 - `tp config new` - Create a new empty TensorPool configuration file
-- `tp listen <job_id>` - Attach to a running job to see its output. You can leave & reattach at any time!
+- `tp listen <job_id>` - Attach to a running job to see its output.
+  - You can leave & reattach at any time!
 - `tp pull <job_id> [files...] [--overwrite]` - Download outputs/changed files from your job.
   - Optionally provide a list of files to download
   - use --overwrite to force replace existing files
@@ -124,7 +125,6 @@ Currently GCP and AWS are supported. More cloud providers are coming soon!
   - Don't save files outside of your project directory, you won't be able to get them back
 - **Download datasets and big files within your script**
   - All TensorPool machines are equipped 10+Gb/s networking, so large files can be downloaded faster if done within your script
-  - Your jobs are cached, so if you rerun a job, all files (including dependencies installed in a virtual envoirnment) will be cached and won't need to be downloaded again
 - **Run from the root of your project**
   - TensorPool will send your project directory to the cloud, so make sure you're in the right directory
   - Don't run from your home directory or a subdirectory!
