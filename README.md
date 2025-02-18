@@ -54,7 +54,9 @@ More examples can be found in [tensorpool/examples](https://github.com/tensorpoo
 - `tp config [prompt]` - Autogenerate a TensorPool configuration file
 - `tp config new` - Create a new empty TensorPool configuration file
 - `tp listen <job_id>` - Attach to a running job to see its output. You can leave & reattach at any time!
-- `tp pull` - Download outputs and changed files from your job
+- `tp pull <job_id> [files...] [--overwrite]` - Download outputs/changed files from your job.
+  - Optionally provide a list of files to download
+  - use --overwrite to force replace existing files
 - `tp dashboard` - View all your jobs and their outputs
 
 
@@ -135,7 +137,6 @@ Currently GCP and AWS are supported. More cloud providers are coming soon!
 - [Join our Discord](https://discord.gg/Kzan7CZauT)
 - team@tensorpool.dev
 - https://x.com/TensorPool
-- # TODO: pull intermediate results
 
 
 ## Why TensorPool?
