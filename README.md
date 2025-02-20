@@ -61,7 +61,7 @@ More examples can be found in [tensorpool/examples](https://github.com/tensorpoo
 - `tp dashboard` - View all your jobs and their outputs
 
 ## Quick Demo Video
-[![Check out a quick demo video](https://www.youtube.com/watch?v=RqqLIVzP780/1.jpg)](https://www.youtube.com/watch?v=RqqLIVzP780)
+[![Check out a quick demo video](https://img.youtube.com/vi/RqqLIVzP780/0.jpg)](https://www.youtube.com/watch?v=RqqLIVzP780)
 
 ## Configuration
 
