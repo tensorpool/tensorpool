@@ -12,7 +12,7 @@ pip install -r requirements.txt
 <details>
 <summary><code>tensorpool train on 100 epochs on an T4, save the weights</code></summary>
 
-Generated `tp-config.toml`:
+Generated `tp.config.toml`:
 ```toml
 commands = [
     "pip install -r requirements.txt",
@@ -27,7 +27,7 @@ This will run your job on the cheapest T4 instance across all cloud providers an
 <details>
 <summary><code>tensorpool train on AWS with the cheapest L4 you can find</code></summary>
 
-Generated `tp-config.toml`:
+Generated `tp.config.toml`:
 ```toml
 commands = [
     "pip install -r requirements.txt",
@@ -46,7 +46,7 @@ For this example you'll want to save your weights as well, otherwise you'll lose
 <details>
 <summary><code>tensorpool do a dry run without cuda</code></summary>
 
-Generated `tp-config.toml`:
+Generated `tp.config.toml`:
 ```toml
 commands = [
     "pip install -r requirements.txt",
@@ -62,7 +62,7 @@ TensorPool will run your job on the cheapest instance across all cloud providers
 <details>
 <summary><code>tensorpoool run training with a 128 batch size and 0.9 learning rate ASAP</code></summary>
 
-Generated `tp-config.toml`:
+Generated `tp.config.toml`:
 ```toml
 commands = [
     "pip install -r requirements.txt",
@@ -77,7 +77,7 @@ Since no GPU is specified, TensorPool will choose the fastest available instance
 
 Since this script exposes many command line arguments TensorPool is able to use them to help you create a job configurations, so you can develop and experiment faster.
 
-Prefer not to use natural language? No problem, feel free define the `tp-config.toml` youself. See [the README](https://github.com/tensorpool/tensorpool?tab=readme-ov-file#configuration) on how to do this.
+Prefer not to use natural language? No problem, feel free define the `tp.config.toml` youself. See [the README](https://github.com/tensorpool/tensorpool?tab=readme-ov-file#configuration) on how to do this.
 
 
 Common questions:

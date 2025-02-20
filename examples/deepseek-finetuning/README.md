@@ -18,7 +18,7 @@ For example, we can do things like:
 
 <code>tp config run my train script on an A100 and optimize for price</code>
 
-Generated `tp-config.toml`:
+Generated `tp.config.toml`:
 ```toml
 commands = [
   "pip install -r requirements.txt",
@@ -36,7 +36,7 @@ So we can ask tensorpool to do things like:
 
 <code>tp config run my train script for 10 epochs with a lr of 5e-5 on an A100</code>
 
-Generated `tp-config.toml`:
+Generated `tp.config.toml`:
 ```toml
 commands = [
   "pip install -r requirements.txt",
@@ -58,7 +58,7 @@ No worries! Let's first get TensorPool to generate a `tp.config.toml` that passe
 
 <code>tp config run my train script for 10 epochs save every 2 epochs and run on an A100</code>
 
-Generated `tp-config.toml`:
+Generated `tp.config.toml`:
 ```toml
 commands = [
   "pip install -r requirements.txt",

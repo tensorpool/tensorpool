@@ -2,7 +2,7 @@
 
 https://huggingface.co/neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w8a16
 
-Use `tensorpool run` to use the existing `tp-config.toml`.
+Use `tensorpool run` to use the existing `tp.config.toml`.
 
 In your output you'll find the generated wav file.
 
