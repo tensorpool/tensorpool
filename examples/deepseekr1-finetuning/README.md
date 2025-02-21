@@ -8,11 +8,11 @@ pip install -r requirements.txt
 ```
 
 # Usage:
-First let's create a `tp.config.toml`, to define your task and your constraints
+First, let's create a `tp.config.toml`, to define your task and your constraints
 
 We can manually create a `tp.config.toml` with `tp config new`! See [the README](https://github.com/tensorpool/tensorpool?tab=readme-ov-file#configuration) for more info.
 
-or you can use our natural language interface to have one auto-generated for you. Simply run `tp config <describe your task>`
+Or you can use our natural language interface to have one auto-generated for you. Simply run `tp config <describe your task>`
 
 For example, we can do things like:
 
@@ -29,10 +29,10 @@ gpu = "A100"
 ```
 This will run your job on the cheapest A100 instance across all cloud providers and regions
 
-But there's more! The training script exposes many command line arguments that allows you to pass in various hyperparameters. 
-TensorPool detects these command line arguments and is able to use them to help you create a job configurations, so you can develop and experiment faster.
+But there's more! The training script exposes many command line arguments that allow you to pass in various hyperparameters. 
+TensorPool detects these command line arguments and is able to use them to help you create job configurations, so you can develop and experiment faster.
 
-So we can ask tensorpool to do things like: 
+So we can ask TensorPool to do things like: 
 
 <code>tp config run my train script for 10 epochs with a lr of 5e-5 on an A100</code>
 
@@ -45,7 +45,7 @@ commands = [
 optimization_priority = "TIME"
 gpu = "A100"
 ```
-As seen TensorPool correctly resolved your description into the correct command line arguments
+As you can see, TensorPool correctly converted your description into the appropriate command line arguments.
 
 To now deploy and run your code on the cloud, you simply run: 
 

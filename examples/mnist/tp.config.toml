@@ -1,0 +1,13 @@
+# List of commands to run as if you were starting from a fresh virtual environment
+commands = [
+    # For example:
+    "pip install -r requirements.txt",
+    "python mnist.py --save-model",
+]
+
+# The optimization priority for the job
+optimization_priority = "PRICE"  # Either "PRICE" or "TIME"
+
+# The GPU you'd like to use. Defaults to "auto", where TensorPool will selected the GPU based on the optimization priority
+gpu = "L4" # Either "auto", "T4", "L4", or "A100". Defaults to "auto". More GPUs coming soon!
+gpu_count = 2

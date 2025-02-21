@@ -6,5 +6,5 @@ __pycache__
 *.egg-info
 /build
 .zed
-/examples/TP Pull Ex. -- Stable Diffusion Image Generation
+/examples/tp-pull_cifar10
 ./idea
