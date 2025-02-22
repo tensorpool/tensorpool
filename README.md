@@ -1,3 +1,4 @@
+
 # TensorPool
 
 TensorPool is the easiest way to use GPUs, at a fraction of the cost of traditional cloud providers.
@@ -81,8 +82,15 @@ commands = [
 # The optimization priority for the job
 optimization_priority = "PRICE"  # Either "PRICE" or "TIME"
 
+ignore = [
+    # List of files to ignore sending with your project
+    # For example:
+    # ".git",
+    # ".DS_Store",
+]
+
 # The GPU you'd like to use
-gpu = "auto" # Either "auto", "T4", "L4", or "A100". Defaults to "auto". More GPUs coming soon!
+gpu = "auto" # Either "auto", "T4", "L4", "A100", "A100-80GB". Defaults to "auto". More GPUs coming soon!
 # Defaults to "auto", where TensorPool will select the best GPU based on your optimization priority
 ```
 
