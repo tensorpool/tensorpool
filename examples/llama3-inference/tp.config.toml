@@ -1,0 +1,3 @@
+commands = ["pip install vllm transformers", "python main.py"]
+optimization_priority = "PRICE"
+gpu = "A100"
