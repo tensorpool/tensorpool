@@ -92,6 +92,7 @@ ignore = [
 # The GPU you'd like to use
 gpu = "auto" # Either "auto", "T4", "L4", "A100", "A100-80GB". Defaults to "auto". More GPUs coming soon!
 # Defaults to "auto", where TensorPool will select the best GPU based on your optimization priority
+gpu_count = 1  # Number of GPUs to use (optional), 1, 2, 4 are supported for all GPUs. 8 supported for L4, A100, A100-80GB. 16 supported for A100.
 ```
 
 The beauty of the `tp.config.toml` is its simplicity and flexibility, this allows you to:
