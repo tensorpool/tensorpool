@@ -59,6 +59,7 @@ More examples can be found in [tensorpool/examples](https://github.com/tensorpoo
 - `tp pull <job_id> [files...] [--overwrite]` - Download outputs/changed files from your job.
   - Optionally provide a list of files to download
   - use --overwrite to force replace existing files
+- `tp cancel <job_id>
 - `tp dashboard` - View all your jobs and their outputs
 
 ## Quick Demo Video
@@ -92,7 +93,10 @@ ignore = [
 # The GPU you'd like to use
 gpu = "auto" # Either "auto", "T4", "L4", "A100", "A100-80GB". Defaults to "auto". More GPUs coming soon!
 # Defaults to "auto", where TensorPool will select the best GPU based on your optimization priority
-gpu_count = 1  # Number of GPUs to use (optional), 1, 2, 4 are supported for all GPUs. 8 supported for L4, A100, A100-80GB. 16 supported for A100.
+# gpu_count = n  # Number of GPUs to use (optional), 1, 2, 4 are supported for all GPUs. 8 supported for L4, A100, A100-80GB. 16 supported for A100.
+# vcpus = x  # Number of vCPUs to use (optional)
+# memory = y  # Amount of memory in GB to use (optional)
+# For all supported gpu_count, vcpus, and memory configuratiosn see docs/instances.md
 ```
 
 The beauty of the `tp.config.toml` is its simplicity and flexibility, this allows you to:
