@@ -119,18 +119,11 @@ TensorPool uses heuristics to find the best GPU for your job based on the optimi
 
 </details>
 
-<details>
-<summary>What GPUs are supported?</summary>
-<br>
-Currently T4s, L4s, and A100s are supported. More GPUs are coming soon!
-
-GPUs you'd like to see supported? Let us know at team@tensorpool.dev!
-</details>
 
 <details>
 <summary>What cloud providers are supported?</summary>
 <br>
-Currently GCP and AWS are supported. More cloud providers are coming soon!
+Currently GCP, AWS, Azure, Runpod are supported. More cloud providers are coming soon!
 </details>
 
 ## Best Practices
