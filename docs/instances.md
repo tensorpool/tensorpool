@@ -1,6 +1,6 @@
 # Supported Machine Configurations
 
-| GPU Type | GPU Count | vCPUs | Memory (GB) |
+| `gpu` | `gpu_count` | `vcpus` | `memory` |
 |----------|-----------|--------|-------------|
 | none | 0 | 2 | 4 |
 | none | 0 | 2 | 8 |
