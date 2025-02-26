@@ -96,8 +96,9 @@ gpu = "auto" # Either "auto", "T4", "L4", "A100", "A100-80GB". Defaults to "auto
 # gpu_count = n  # Number of GPUs to use (optional), 1, 2, 4 are supported for all GPUs. 8 supported for L4, A100, A100-80GB. 16 supported for A100.
 # vcpus = x  # Number of vCPUs to use (optional)
 # memory = y  # Amount of memory in GB to use (optional)
-# For all supported gpu_count, vcpus, and memory configuratiosn see https://github.com/tensorpool/tensorpool/blob/main/docs/instances.md
 ```
+
+For all supported gpu_count, vcpus, and memory configurations see [docs/instances]( https://github.com/tensorpool/tensorpool/blob/main/docs/instances.md)
 
 The beauty of the `tp.config.toml` is its simplicity and flexibility, this allows you to:
 - Run your job with a single command
