@@ -6,7 +6,7 @@ TensorPool is the easiest way to use GPUs, at a fraction of the cost of traditio
 ## Features
 - **Zero Infra Setup**: No GCP, no AWS, no Docker, no Kubernetes, no cloud configuration, no cloud accounts required
 - **Optimization Priorities**: optimize your job for price or time, we'll find the best GPU for your job
-- **>50% cheaper than traditional cloud providers**: TensorPool aggregates GPUs from multiple cloud providers to get you the best price possible
+- **>50% cheaper than traditional cloud providers**: TensorPool aggregates GPUs from multiple cloud providers to get you the best price possible. We also use spot node recovery technology to reliably run all jobs on spot
 
 ## Prerequisites
 1. Create an account at [tensorpool.dev](https://tensorpool.dev)
