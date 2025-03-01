@@ -546,16 +546,6 @@ def autogen_tp_config(
     # )
 
 
-# def snapshot_proj_state() -> Dict[str, int]:
-#     """
-#     Local state snapshot of the project directory.
-#     Returns a dictionary all paths and their last modified timestamps
-#     """
-#     files = get_proj_paths()
-#     # TODO: consider if OSError is thrown on getmtime
-#     return {f: os.path.getmtime(f) for f in files}
-
-
 def get_project_files(ignore: Optional[set]) -> List[str]:
     """
     Returns a set of all files in the project directory.
@@ -566,8 +556,11 @@ def get_project_files(ignore: Optional[set]) -> List[str]:
     return [f for f in files if f not in ignore]
 
 
-def listen_to_job(job_id: str) -> None:
-    """Connects to job stream and prints output in real-time."""
+def listen_to_job(job_id: str) -> bool:
+    """
+    Connects to job stream and prints output in real-time.
+    Returns if the job is completed or not.
+    """
     headers = {"Content-Type": "application/json"}
     payload = {"key": os.environ["TENSORPOOL_KEY"], "id": job_id}
 
@@ -594,10 +587,15 @@ def listen_to_job(job_id: str) -> None:
                 pretty = text.replace("data: ", "", 1)
                 print(pretty, flush=True)
 
+                if pretty.startswith("[TP]") and pretty.endswith("COMPLETED"):
+                    return True
+
     except KeyboardInterrupt:
         print("\nDetached from job stream")
+        return False
     except Exception as e:
         print(f"Error while listening to job stream: {str(e)}")
+        return False
 
 
 def fetch_dashboard() -> str:
@@ -639,6 +637,7 @@ def fetch_dashboard() -> str:
 def job_pull(
     job_id: str,
     files: Optional[List[str]] = None,
+    preview: bool = False,
 ) -> Tuple[Dict[str, str], str]:
     """
     Given a job ID, fetch the job's output files that changed during the job.
@@ -651,6 +650,7 @@ def job_pull(
     payload = {
         "key": os.environ["TENSORPOOL_KEY"],
         "id": job_id,
+        "preview": preview,
     }
     if files:
         payload["files"] = files
@@ -668,7 +668,7 @@ def job_pull(
         # print(response.text)
         raise RuntimeError(
             f"Malformed response from server while pulling job. Status: {response.status_code}"
-            "\nPlease try again or visit https://app.tensorpool.dev/dashboard\nContact team@tensorpool.dev if this persists"
+            "\nPlease try again or visit https://dashboard.tensorpool.dev/dashboard\nContact team@tensorpool.dev if this persists"
         )
 
     status = res.get("status")
@@ -763,3 +763,43 @@ def download_files(download_map: Dict[str, str], overwrite: bool = False) -> boo
         return False
 
     return True
+
+
+def job_cancel(job_id) -> Tuple[bool, Optional[str]]:
+    """
+    Given a job_id, attempt to cancel it.
+    Returns (cancel successful, optional message to print)
+    """
+    assert job_id is not None, "A job ID is needed to cancel"
+
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        "id": job_id,
+    }
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/job/cancel",
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Job cancellation failed: {str(e)}"
+
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return (
+            False,
+            f"Malformed response from server. Status code: {response.status_code}",
+        )
+
+    status = res.get("status")
+    message = res.get("message")
+
+    if status == "success":
+        return True, message
+    else:
+        return False, message

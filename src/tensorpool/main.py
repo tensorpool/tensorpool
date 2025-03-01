@@ -19,6 +19,7 @@ from tensorpool.helpers import (
     fetch_dashboard,
     job_pull,
     download_files,
+    job_cancel,
 )
 from tensorpool.spinner import Spinner
 from typing import Optional, List
@@ -119,7 +120,12 @@ def gen_tp_config(prompt):
     return
 
 
-def run(tp_config_path, use_cache: Optional[str] = None, detach: bool = False):
+def run(
+    tp_config_path,
+    use_cache: Optional[str] = None,
+    detach: bool = False,
+    pull_on_complete: bool = False,
+):
     """
     Run a job
     use_cache is a job ID to use as a cache, if empty the last job will be used
@@ -157,25 +163,33 @@ def run(tp_config_path, use_cache: Optional[str] = None, detach: bool = False):
 
     print(post_submit_message)
     if job_submit_success and not detach:
-        listen_to_job(job_id)
+        listen(job_id, pull_on_complete=pull_on_complete)
 
     return
 
 
-def listen(job_id):
-    # TODO: use a snapshot to infer the job_id
+def listen(
+    job_id: str, pull_on_complete: bool = False, overwrite_on_pull: bool = False
+):
     if not job_id:
         print("Error: Job ID required")
         print("Usage: tp listen <job_id>")
         return
 
-    listen_to_job(job_id)
-    # TODO: run tp pull <job_id>
+    completed = listen_to_job(job_id)
+
+    if completed and pull_on_complete:
+        pull(job_id, files=None, overwrite=overwrite_on_pull)
 
     return
 
 
-def pull(job_id, files: Optional[List[str]] = None, overwrite=False):
+def pull(
+    job_id: str,
+    files: Optional[List[str]] = None,
+    overwrite: bool = False,
+    preview: bool = False,
+):
     # if not job_id:
     #     print("Error: Job ID required")
     #     print("Usage: tp pull <job_id>")
@@ -184,7 +198,7 @@ def pull(job_id, files: Optional[List[str]] = None, overwrite=False):
         print(f"{len(files)} files requested, this may take a while")
 
     with Spinner(text="Pulling job..."):
-        download_map, msg = job_pull(job_id, files)
+        download_map, msg = job_pull(job_id, files, preview)
 
     if not download_map:
         if msg:
@@ -209,8 +223,9 @@ def pull(job_id, files: Optional[List[str]] = None, overwrite=False):
     return
 
 
-def cancel():
-    pass
+def cancel(job_id: str):
+    cancel_success, message = job_cancel(job_id)
+    print(message)
 
 
 def dashboard():
@@ -250,25 +265,40 @@ def main():
     run_parser.add_argument(
         "--detach", action="store_true", help="Run the job in the background"
     )
+    # TODO: listen & docuement these
+    # run_parser.add_argument("--gpu", help="GPU type to use")
+    # run_parser.add_argument("--gpu-count", help="Number of GPUs to use")
+    # run_parser.add_argument("--vcpus", help="Number of vCPUs to use")
+    # run_parser.add_argument("--memory", help="Amount of memory to use in GB")
 
     listen_parser = subparsers.add_parser("listen", help="Listen to a job")
     listen_parser.add_argument("job_id", help="ID of the job to listen to")
-
+    listen_parser.add_argument(
+        "--pull", action="store_true", help="Pull the job files after listening"
+    )
+    listen_parser.add_argument(
+        "--overwrite", action="store_true", help="Overwrite existing files if pulling"
+    )
     pull_parser = subparsers.add_parser("pull", help="Pull a job")
     pull_parser.add_argument("job_id", nargs="?", help="ID of the job to pull")
     pull_parser.add_argument("files", nargs="*", help="List of filenames to pull")
     pull_parser.add_argument(
         "--overwrite", action="store_true", help="Overwrite existing files"
     )
+    pull_parser.add_argument(
+        "--preview", action="store_true", help="Preview the files to be pulled"
+    )
+
+    cancel_parser = subparsers.add_parser("cancel", help="Cancel a job")
+    cancel_parser.add_argument("job_ids", nargs="+", help="IDs of the job(s) to cancel")
 
     # cancel_parser = subparsers.add_parser('cancel', help='Cancel a job')
     dashboard_parser = subparsers.add_parser(
         "dashboard",
-        # TODO: these don't work?
-        # aliases=[
-        #     "dash",
-        #     "jobs",
-        # ],
+        aliases=[
+            "dash",
+            "jobs",
+        ],
         help="Open the TensorPool dashboard",
     )
 
@@ -318,30 +348,48 @@ def main():
             elif len(config_files) == 1:
                 args.tp_config_path = config_files[0]
             else:
-                print("Select a config file to run:")
+                print(
+                    "Select config file(s) to run (comma-separated numbers, e.g. 3, or 1,2,3):"
+                )
                 for idx, file in enumerate(config_files):
                     print(f"{idx + 1}. {file}")
 
                 while True:
                     try:
-                        selection = int(input("Select a config to use: ")) - 1
-                        if 0 <= selection < len(config_files):
-                            args.tp_config_path = config_files[selection]
-                            break
-                        print("Invalid selection, try again")
-                    except ValueError:
-                        print("Please enter a number")
+                        selections = input("Select config(s) to use: ").split(",")
+                        selections = [int(s.strip()) - 1 for s in selections]
+                        if all(0 <= s < len(config_files) for s in selections):
+                            for config_file in [config_files[s] for s in selections]:
+                                run(
+                                    config_file,
+                                    args.skip_cache,
+                                    True
+                                    if len(selections) > 1
+                                    else args.detach,  # force detach for multiple jobs
+                                    pull_on_complete=False,
+                                )
 
-        return run(args.tp_config_path, args.skip_cache, args.detach)
+                            return
+                        print("Invalid selection(s), try again")
+                    except ValueError:
+                        print("Please enter comma-separated numbers")
+
+        return run(
+            args.tp_config_path, args.skip_cache, args.detach, pull_on_complete=False
+        )
     elif args.command == "listen":
-        return listen(args.job_id)
+        return listen(args.job_id, args.pull, args.overwrite)
     elif args.command == "pull":
         # Check if job_id is a snowflake
-        return pull(args.job_id, args.files, args.overwrite)
-    # elif args.command == 'cancel':
-    #     return cancel()
+        return pull(args.job_id, args.files, args.overwrite, args.preview)
+    elif args.command == "cancel":
+        for job_id in args.job_ids:
+            cancel(job_id)
+        return
     #
-    elif args.command == "dashboard":
+    elif (
+        args.command == "dashboard" or args.command == "dash" or args.command == "jobs"
+    ):
         return dashboard()
 
     parser.print_help()

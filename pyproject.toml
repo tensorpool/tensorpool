@@ -1,7 +1,7 @@
 [project]
 name = "tensorpool"
-version = "3.0.0"
-description = "TensorPool is the easiest way to execute ML jobs on cloud GPUs."
+version = "4.2.0"
+description = "TensorPool is the easiest way to use cloud GPUs."
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = ["requests>=2.32.3", "toml>=0.10.2", "tqdm>=4.67.1"]

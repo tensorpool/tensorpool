@@ -54,12 +54,14 @@ More examples can be found in [tensorpool/examples](https://github.com/tensorpoo
 - `tp run` - Execute a job
 - `tp config [prompt]` - Autogenerate a TensorPool configuration file
 - `tp config new` - Create a new empty TensorPool configuration file
-- `tp listen <job_id>` - Attach to a running job to see its output.
+- `tp listen <job_id> [--pull] [--overwrite]` - Attach to a running job to see its output.
   - You can leave & reattach at any time!
+  - use --pull to download all outputs/changed files
+  - use --overwrite to force replace existing files on pull
 - `tp pull <job_id> [files...] [--overwrite]` - Download outputs/changed files from your job.
   - Optionally provide a list of files to download
   - use --overwrite to force replace existing files
-- `tp cancel <job_id>` - Cancel a running job
+- `tp cancel <job_id(s)>` - Cancel a running job(s)
 - `tp dashboard` - View all your jobs and their outputs
 
 ## Quick Demo Video
