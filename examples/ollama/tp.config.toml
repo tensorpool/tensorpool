@@ -1,0 +1,12 @@
+# List of commands to run as if you were starting from a fresh virtual environment
+commands = [
+    "curl -fsSL https://ollama.com/install.sh | sh",
+    "ollama pull llama3.2",
+    "ollama run llama3.2",
+    "pip install ollama",
+    "python ollama-test.py",
+]
+
+# The optimization priority for the job
+optimization_priority = "PRICE" # Either "PRICE" or "TIME"
+gpu = "L4"
