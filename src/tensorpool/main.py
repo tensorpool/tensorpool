@@ -20,6 +20,7 @@ from tensorpool.helpers import (
     job_pull,
     download_files,
     job_cancel,
+    get_unique_config_path,
 )
 from tensorpool.spinner import Spinner
 from typing import Optional, List
@@ -36,15 +37,7 @@ def gen_tp_config(prompt):
         )
         return
     elif prompt.lower() == "new":
-        tp_config_path = "tp.config.toml"
-        # Find a unique default name
-        if os.path.exists(tp_config_path):
-            count = 1
-            while True:
-                tp_config_path = f"tp.config{count}.toml"
-                if not os.path.exists(tp_config_path):
-                    break
-                count += 1
+        tp_config_path = get_unique_config_path()
 
         # Ask the user if they want this name, or if they want to specify a different name
         print(f"Enter a name for the tp config, or press ENTER to use {tp_config_path}")
@@ -83,15 +76,7 @@ def gen_tp_config(prompt):
             return
 
     with Spinner():
-        tp_config_path = "tp.config.toml"
-        # Find a unique default name
-        if os.path.exists(tp_config_path):
-            count = 1
-            while True:
-                tp_config_path = f"tp.config{count}.toml"
-                if not os.path.exists(tp_config_path):
-                    break
-                count += 1
+        tp_config_path = get_unique_config_path()
 
     # Ask the user if they want this name, or if they want to specify a different name
     print(f"Enter a name for the tp config, or press ENTER to use {tp_config_path}")
@@ -103,7 +88,7 @@ def gen_tp_config(prompt):
     if os.path.exists(tp_config_path):
         print(f"File {tp_config_path} already exists. Overwrite? [Y/n]", end=" ")
         response = input()
-        if response.lower() not in ["n", "no"]:
+        if response.lower() in ["n", "no"]:
             print("Exiting...")
             return
 
@@ -246,12 +231,21 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command")
     gen_parser = subparsers.add_parser(
-        "config", help="generate a tp-config.toml job configuration"
+        "config",
+        help="Generate a tp.config.toml job configuration file",
+        description="""
+Generate a TensorPool configuration file (tp.config.toml) in two ways:
+1. Create an empty template: tp config new
+2. Auto-generate from natural language: tp config "train on 4 GPUs for 3 hours"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     gen_parser.add_argument(
-        "config", nargs="*", help="Configuration name or natural language prompt"
+        "config",
+        nargs="*",
+        metavar="PROMPT",
+        help='Either "new" to create an empty config, or a natural language description of your job'
     )
-    # TODO: improve how this shows in --help?
 
     run_parser = subparsers.add_parser("run", help="Run a job on TensorPool")
     run_parser.add_argument(
