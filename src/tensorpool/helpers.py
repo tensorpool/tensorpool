@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Final, Optional, List, Dict, Tuple, Set
+from typing import Final, Optional, List, Dict, Tuple
 import requests
 from tqdm import tqdm
 import toml
@@ -8,6 +8,8 @@ from toml.encoder import TomlEncoder
 import importlib.metadata
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
+import sys
 
 
 # ENGINE: Final = "http://localhost:8000"
@@ -92,15 +94,24 @@ def health_check() -> (bool, str):
             json={"key": key, "package_version": version},
             timeout=15,
         )
-        # TODO: status code before res parse? if res json parse fails. do for other fn too
+        
+        if response.status_code >= 500:
+            return (
+                False,
+                f"TensorPool server error (status {response.status_code}). Please try again later.\nIf this persists, contact team@tensorpool.dev"
+            )
+        elif response.status_code >= 400 and response.status_code != 401:
+            return (
+                False,
+                f"Request error (status {response.status_code}). Please check your configuration.\nNeed help? Contact team@tensorpool.dev"
+            )
+            
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
-            # Malformed response handling
-            # print(response.text)
             return (
                 False,
-                f"Received malformed response from server. Status code: {response.status_code} \nIf this persists, please contact team@tensorpool.dev",
+                f"Invalid response from server (status {response.status_code}).\nIf this persists, please contact team@tensorpool.dev"
             )
 
         msg = data.get("message")
@@ -174,7 +185,7 @@ def is_utf8_encoded(file_path: str) -> bool:
         return False
 
 
-def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
+def construct_proj_ctx(file_paths: List[str]) -> Tuple[List[str], Dict[str, str]]:
     """
     Constructs the project context
     Args:
@@ -196,7 +207,7 @@ def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
         f: get_file_contents(f) for f in filtered_paths
     }
 
-    return file_paths, filtered_file_contents
+    return filtered_paths, filtered_file_contents
 
 
 # TODO: ignore from tp config
@@ -217,6 +228,15 @@ def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
 #             return True
 #     return False
 
+def get_unique_config_path(base_path: str = "tp.config.toml") -> str:
+    existing_files = set(os.listdir('.'))
+    tp_config_path = "tp.config.toml"
+    if tp_config_path in existing_files:
+        count = 1
+        while f"tp.config{count}.toml" in existing_files:
+            count += 1
+        tp_config_path = f"tp.config{count}.toml"
+    return tp_config_path
 
 def load_tp_config(path: str) -> Optional[Dict]:
     """
@@ -442,7 +462,15 @@ def autogen_job_config(
     # print("Payload:", payload)
 
     # TODO: better capture failed translation
-    # TODO: check if proj too large
+
+    payload_size_mb = sys.getsizeof(json.dumps(payload)) / (1024 * 1024)
+    max_payload_size_mb = 50
+    if payload_size_mb > max_payload_size_mb:
+        print(f"Project is too large (payload: {payload_size_mb:.2f} MB, max: {max_payload_size_mb} MB)")
+        raise RuntimeError(
+            f"Project is too large (payload: {payload_size_mb:.2f} MB, max: {max_payload_size_mb} MB). "
+            "Please reduce the size of your project."
+        )
 
     try:
         response = requests.post(
@@ -508,8 +536,12 @@ def autogen_tp_config(
     # print("Payload:", payload)
 
     # TODO: better capture failed translation
-    # TODO: check if proj too large
-
+    
+    payload_size_mb = sys.getsizeof(json.dumps(payload)) / (1024 * 1024)
+    max_payload_size_mb = 50
+    if payload_size_mb > max_payload_size_mb:
+        return False, {}, f"Project is too large (payload: {payload_size_mb:.2f} MB, max: {max_payload_size_mb} MB)"
+    
     try:
         response = requests.post(
             f"{ENGINE}/tp-config-autogen",
