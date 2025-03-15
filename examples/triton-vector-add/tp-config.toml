@@ -1,0 +1,3 @@
+commands = ["pip install torch triton", "python vector-add.py"]
+optimization_priority = "TIME"
+gpu = "T4"

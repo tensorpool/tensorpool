@@ -52,8 +52,8 @@ More examples can be found in [tensorpool/examples](https://github.com/tensorpoo
 
 ## Core Commands
 - `tp run` - Execute a job
-- `tp config [prompt]` - Autogenerate a TensorPool configuration file
-- `tp config new` - Create a new empty TensorPool configuration file
+- `tp init` - Create a new empty TensorPool configuration file
+- `tp init <prompt>` - Autogenerate a TensorPool configuration file from a natural language prompt
 - `tp listen <job_id> [--pull] [--overwrite]` - Attach to a running job to see its output.
   - You can leave & reattach at any time!
   - use --pull to download all outputs/changed files
@@ -93,11 +93,14 @@ ignore = [
 ]
 
 # The GPU you'd like to use
-gpu = "auto" # Either "auto", "T4", "L4", "A100", "A100-80GB". Defaults to "auto". More GPUs coming soon!
+gpu = "auto" # Either "auto", "P4", "P100", "V100", "T4", "L4", "A100", "A100-80GB".
 # Defaults to "auto", where TensorPool will select the best GPU based on your optimization priority
-# gpu_count = n  # Number of GPUs to use (optional), 1, 2, 4 are supported for all GPUs. 8 supported for L4, A100, A100-80GB. 16 supported for A100.
-# vcpus = x  # Number of vCPUs to use (optional)
-# memory = y  # Amount of memory in GB to use (optional)
+
+# Instance specification (optional)
+# gpu_count = n  # Number of GPUs to use
+# vcpus = x  # Number of vCPUs to use
+# memory = y  # Amount of memory in GB to use
+# See https://github.com/tensorpool/tensorpool/blob/main/docs/instances.md for all supported configurations
 ```
 
 For all supported gpu_count, vcpus, and memory configurations see [docs/instances]( https://github.com/tensorpool/tensorpool/blob/main/docs/instances.md)

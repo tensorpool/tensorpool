@@ -327,7 +327,7 @@ def job_init(
     upload_map = res.get("upload_map")
 
     if response.status_code != 200 or status != "success":
-        return status, message, None
+        return message, id, None
 
     assert id is not None, "No job ID recieved, please contact team@tensorpool.dev"
 
