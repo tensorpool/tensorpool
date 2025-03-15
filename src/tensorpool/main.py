@@ -99,7 +99,7 @@ def gen_tp_config(prompt):
     if os.path.exists(tp_config_path):
         print(f"File {tp_config_path} already exists. Overwrite? [Y/n]", end=" ")
         response = input()
-        if response.lower() not in ["n", "no"]:
+        if response.lower() in ["n", "no"]:
             print("Exiting...")
             return
 
