@@ -20,7 +20,6 @@ from tensorpool.helpers import (
     job_pull,
     download_files,
     job_cancel,
-    get_unique_config_path,
 )
 from tensorpool.spinner import Spinner
 from typing import Optional, List
@@ -33,7 +32,15 @@ def gen_tp_config(prompt):
     assert prompt is None or isinstance(prompt, str), "Prompt must be a string"
 
     if prompt == "" or prompt.lower() == "new":
-        tp_config_path = get_unique_config_path()
+        tp_config_path = "tp.config.toml"
+        # Find a unique default name
+        if os.path.exists(tp_config_path):
+            count = 1
+            while True:
+                tp_config_path = f"tp.config{count}.toml"
+                if not os.path.exists(tp_config_path):
+                    break
+                count += 1
 
         # Ask the user if they want this name, or if they want to specify a different name
         print(f"Enter a name for the tp config, or press ENTER to use {tp_config_path}")
@@ -72,7 +79,15 @@ def gen_tp_config(prompt):
             return
 
     with Spinner():
-        tp_config_path = get_unique_config_path()
+        tp_config_path = "tp.config.toml"
+        # Find a unique default name
+        if os.path.exists(tp_config_path):
+            count = 1
+            while True:
+                tp_config_path = f"tp.config{count}.toml"
+                if not os.path.exists(tp_config_path):
+                    break
+                count += 1
 
     # Ask the user if they want this name, or if they want to specify a different name
     print(f"Enter a name for the tp config, or press ENTER to use {tp_config_path}")
