@@ -8,7 +8,8 @@ from toml.encoder import TomlEncoder
 import importlib.metadata
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+import json
+import sys
 
 # ENGINE: Final = "http://localhost:8000"
 ENGINE: Final = "https://engine.tensorpool.dev/"
@@ -92,7 +93,6 @@ def health_check() -> (bool, str):
             json={"key": key, "package_version": version},
             timeout=15,
         )
-        # TODO: status code before res parse? if res json parse fails. do for other fn too
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
@@ -106,7 +106,7 @@ def health_check() -> (bool, str):
         msg = data.get("message")
 
         if response.status_code == 200:
-            # Valid health
+            # Healthy
             return (True, msg)
         else:
             # Engine online, but auth or health check failure
@@ -174,7 +174,7 @@ def is_utf8_encoded(file_path: str) -> bool:
         return False
 
 
-def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
+def construct_proj_ctx(file_paths: List[str]) -> Tuple[List[str], Dict[str, str]]:
     """
     Constructs the project context
     Args:
@@ -196,7 +196,8 @@ def construct_proj_ctx(file_paths: List[str]) -> (List[str], Dict[str, str]):
         f: get_file_contents(f) for f in filtered_paths
     }
 
-    return file_paths, filtered_file_contents
+    return file_paths, filtered_file_contents # intentionally passing through all file paths, not just filtered
+
 
 
 # TODO: ignore from tp config
@@ -413,54 +414,6 @@ def job_submit(job_id: str, tp_config: Dict) -> Tuple[bool, str]:
     else:
         return False, f"Job submission failed\n{message}"
 
-
-def autogen_job_config(
-    query: str, dir_ctx: List[str], file_ctx: Dict[str, str]
-) -> Dict:
-    """
-    Send query to translate endpoint
-    Args:
-        query: The query to translate to a task
-        dir_ctx: The directory context (all files in the project directory)
-        file_ctx: The file context (files and their contents)
-    """
-    assert query is not None and query != "", "Query cannot be None or empty"
-    assert file_ctx is not None and file_ctx != "", (
-        "File context cannot be None or empty"
-    )
-    assert dir_ctx is not None and dir_ctx != "", (
-        "Directory context cannot be None or empty"
-    )
-
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "key": os.environ["TENSORPOOL_KEY"],
-        "query": query,
-        "dir_ctx": dir_ctx,
-        "file_ctx": file_ctx,
-    }
-    # print("Payload:", payload)
-
-    # TODO: better capture failed translation
-    # TODO: check if proj too large
-
-    try:
-        response = requests.post(
-            f"{ENGINE}/translate",
-            json=payload,
-            headers=headers,
-            timeout=60,  # limit is quite high...
-        )
-        response.raise_for_status()
-        return response.json()
-
-    except Exception as e:
-        print(e)
-        raise RuntimeError(
-            "tp-config.toml autogeneration failed.\nPlease try again or create your tp-config.toml manually."
-        )
-
-
 def save_empty_tp_config(path: str) -> bool:
     """
     Fetch the default empty tp config and save it
@@ -508,7 +461,15 @@ def autogen_tp_config(
     # print("Payload:", payload)
 
     # TODO: better capture failed translation
-    # TODO: check if proj too large
+
+    # Check if project too large
+    payload_size_mb = sys.getsizeof(json.dumps(payload)) / (1024 * 1024)
+    max_payload_size_mb = 5
+    if payload_size_mb > max_payload_size_mb:
+        raise RuntimeError(
+            f"Project too large to autogenerate configuration ({payload_size_mb:.2f} MB, max: {max_payload_size_mb} MB).\n"
+            "Create a tp.config.toml manually with `tp init`"
+        )
 
     try:
         response = requests.post(
@@ -539,11 +500,6 @@ def autogen_tp_config(
         return False, tp_config, message
 
     return True, tp_config, message
-
-    # print(e)
-    # raise RuntimeError(
-    #     "tp-config.toml autogeneration failed.\nPlease try again or create your tp-config.toml manually."
-    # )
 
 
 def get_project_files(ignore: Optional[set]) -> List[str]:
