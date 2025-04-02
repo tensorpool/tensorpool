@@ -11,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
 
-ENGINE: Final = "http://localhost:8000"
-#ENGINE: Final = "https://engine.tensorpool.dev/"
+#ENGINE: Final = "http://localhost:8000"
+ENGINE: Final = "https://engine.tensorpool.dev/"
 
 # TODO: deprecate, should all be in tpignore
 IGNORE_FILE_SUFFIXES: Final = {
