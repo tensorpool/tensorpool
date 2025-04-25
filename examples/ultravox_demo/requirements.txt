@@ -1,0 +1,17 @@
+torch>=2.0.0
+datasets
+simple-parsing
+transformers>=4.36.0
+accelerate>=0.23.0
+bitsandbytes>=0.41.0
+peft>=0.5.0
+wandb>=0.15.5
+huggingface_hub>=0.16.4
+tensorboard>=2.14.0
+soundfile>=0.12.1
+sentencepiece>=0.1.99
+tqdm>=4.65.0
+librosa>=0.10.0
+ffmpeg-python>=0.2.0
+einops>=0.6.0
+wandb

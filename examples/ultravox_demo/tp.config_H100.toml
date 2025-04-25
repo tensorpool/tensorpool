@@ -1,0 +1,40 @@
+# Commands to execute on TensorPool
+commands = [
+    # Setting Env Vars
+    "export HF_TOKEN=<INSERT HUGGINGFACE KEY>",
+    "export WANDB_PROJECT=ultravox",
+    "export WANDB_API_KEY=<INSERT WANDB KEY>",
+    # Installing Git
+    "sudo apt update",
+    "sudo apt install git",
+    # Installing Ultravox
+    "git clone https://github.com/fixie-ai/ultravox.git",
+    # Installing Project Dependencies
+    "pip install -r requirements.txt",
+    # Navigate to the Ultravox repository
+    "cd ultravox",
+    # Install Ultravox Dependencies
+    "pip install -e .",
+    # Pre-fetching weights
+    "python -m ultravox.training.helpers.prefetch_weights --config_path ultravox/training/configs/release_config.yaml",
+    # Begin Training Run
+    "torchrun --nproc_per_node=8 -m ultravox.training.train --config_path ultravox/training/configs/release_config.yaml"
+]
+
+# Optimize for the price
+optimization_priority = "PRICE"
+
+# Request GPU type - can be A100, V100, etc.
+gpu = "H100-MEGA"
+gpu_count = 8
+
+disk_size = 200
+preview_fast = true
+
+# Ignore directories that shouldn't be uploaded
+ignore = [
+    ".git",
+    "__pycache__",
+    "*.pyc",
+]
+
