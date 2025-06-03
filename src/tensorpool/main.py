@@ -20,6 +20,9 @@ from tensorpool.helpers import (
     job_pull,
     download_files,
     job_cancel,
+    cluster_dashboard,
+    change_cluster_status,
+    create_new_cluster,
 )
 from tensorpool.spinner import Spinner
 from typing import Optional, List
@@ -239,6 +242,92 @@ def dashboard():
     return
 
 
+def cluster_list():
+    with Spinner(text="Fetching clusters..."):
+        cluster_data = cluster_dashboard()
+
+    print(cluster_data)
+
+
+def update_cluster_status(cluster_id: str, status: str):
+    # Cluster_id can be an instance id or a cluster id
+    with Spinner(text=f"Updating {cluster_id} to {status}..."):
+        success, message = change_cluster_status(cluster_id, status)
+
+    if message:
+        print(message)
+
+    if success:
+        print("Success")
+    else:
+        print("Failed to update cluster status")
+    return
+
+
+def create_cluster(public_keys_path: str, instance_type: str, instance_name: str, cloud_init_path:str,
+    num_nodes: int = 1):
+    # Expand the SSH key path if it includes ~
+    if public_keys_path:
+        public_keys_path = os.path.expanduser(public_keys_path)
+
+        # Check if the file exists
+        if not os.path.isfile(public_keys_path):
+            print(f"Error: SSH key file '{public_keys_path}' not found")
+            return
+
+        # Check if the file is readable
+        try:
+            with open(public_keys_path, "r") as f:
+                key_content = f.read().strip()
+
+            # Simple validation that it looks like a public key
+            if not (
+                key_content.startswith("ssh-rsa ")
+                or key_content.startswith("ssh-ed25519 ")
+                or key_content.startswith("ecdsa-sha2-")
+                or key_content.startswith("ssh-dss ")
+            ):
+                print(
+                    f"Error: File '{public_keys_path}' does not appear to be a valid SSH public key"
+                )
+                return
+        except Exception as e:
+            print(f"Error reading SSH key file: {e}")
+            return
+    else:
+        print("Error: SSH public key path is required")
+        return
+
+    if not instance_type:
+        print("Error: Instance type is required")
+        return
+
+    cloud_init_contents=None
+    # if cloud_init_path:
+    #     cloud_init_path = os.path.expanduser(cloud_init_path)
+    #     if not os.path.isfile(cloud_init_path):
+    #         print(f"Error: cloud-init file '{cloud_init_path}' not found")
+    #         return
+    #     try:
+    #         with open(cloud_init_path, "r") as f:
+    #             cloud_init_contents = f.read().strip()
+    #     except Exception as e:
+    #         print(f"Error reading cloud-init file: {e}")
+    #         return
+
+    with Spinner(text="Creating cluster..."):
+        success, message = create_new_cluster(key_content, instance_type, instance_name, cloud_init_contents, num_nodes)
+
+    if message:
+        print(message)
+
+    if success:
+        print("Success")
+    else:
+        print("Failed to create cluster")
+    return
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="TensorPool is the easiest way to use cloud GPUs. https://tensorpool.dev"
@@ -303,6 +392,50 @@ def main():
         ],
         help="Open the TensorPool dashboard",
     )
+
+    cluster_parser = subparsers.add_parser(
+        "cluster",
+        aliases=["clusters", "instance"],
+        help="Manage clusters",
+    )
+    cluster_subparsers = cluster_parser.add_subparsers(dest="cluster_command")
+    create_parser = cluster_subparsers.add_parser("create", help="Create a new cluster")
+    create_parser.add_argument(
+        "-i", help="Identity file. Path to your public SSH key (e.g. ~/.ssh/id_rsa.pub)"
+    )
+    create_parser.add_argument(
+        "-t",
+        "--type",
+        choices=["1xH100", "2xH100", "4xH100", "8xH100"],
+        # ["8xH100", "8xH200", "8xB200"]
+        help="Instance type",
+    )
+    create_parser.add_argument(
+        "-n",
+        "--name",
+        help="Name for the instance",
+    )
+    # create_parser.add_argument(
+    #     "--cloud-init",
+    #     help="Path to a cloud-init configuration YAML file",
+    # )
+    # create_parser.add_argument(
+    #     "-n", # come up with a new shorthand
+    #     "--nodes",
+    #     type=int,
+    #     help="Number of nodes in the cluster.",
+    # )
+
+    list_parser = cluster_subparsers.add_parser("list", help="List available clusters")
+
+    # on_parser = cluster_subparsers.add_parser("on", help="Activate a cluster")
+    # on_parser.add_argument("cluster_id", help="ID of the instance/cluster to turn on")
+
+    # off_parser = cluster_subparsers.add_parser("off", help="Deactivate a cluster")
+    # off_parser.add_argument("cluster_id", help="ID of the instance/cluster to turn off")
+
+    delete_parser = cluster_subparsers.add_parser("delete", help="Delete a cluster")
+    delete_parser.add_argument("cluster_id", help="ID of the instance/cluster to delete")
 
     parser.add_argument("-v", "--version", action="version", version=f"{get_version()}")
 
@@ -393,6 +526,24 @@ def main():
         args.command == "dashboard" or args.command == "dash" or args.command == "jobs"
     ):
         return dashboard()
+    elif args.command == "cluster" or args.command == "clusters":
+        if args.cluster_command == "list":
+            return cluster_list()
+        # elif args.cluster_command == "on":
+        #     return update_cluster_status(args.cluster_id, "ON")
+        # elif args.cluster_command == "off":
+        #     return update_cluster_status(args.cluster_id, "OFF")
+        elif args.cluster_command == "delete":
+            return update_cluster_status(args.cluster_id, "DELETE")
+        elif args.cluster_command == "create":
+            return create_cluster(
+                args.i, args.type, args.name, None,
+                # args.cloud_init,
+                args.nodes if hasattr(args, "nodes") else 1
+            )
+        else:
+            cluster_parser.print_help()
+            return
 
     parser.print_help()
     return

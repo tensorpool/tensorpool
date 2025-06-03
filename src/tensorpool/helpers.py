@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Final, Optional, List, Dict, Tuple, Set
+from typing import Final, Optional, List, Dict, Tuple
 import requests
 from tqdm import tqdm
 import toml
@@ -196,8 +196,10 @@ def construct_proj_ctx(file_paths: List[str]) -> Tuple[List[str], Dict[str, str]
         f: get_file_contents(f) for f in filtered_paths
     }
 
-    return file_paths, filtered_file_contents # intentionally passing through all file paths, not just filtered
-
+    return (
+        file_paths,
+        filtered_file_contents,
+    )  # intentionally passing through all file paths, not just filtered
 
 
 # TODO: ignore from tp config
@@ -413,6 +415,7 @@ def job_submit(job_id: str, tp_config: Dict) -> Tuple[bool, str]:
         return True, message
     else:
         return False, f"Job submission failed\n{message}"
+
 
 def save_empty_tp_config(path: str) -> bool:
     """
@@ -754,6 +757,129 @@ def job_cancel(job_id) -> Tuple[bool, Optional[str]]:
 
     status = res.get("status")
     message = res.get("message")
+
+    if status == "success":
+        return True, message
+    else:
+        return False, message
+
+
+def cluster_dashboard() -> Optional[str]:
+    """
+    Fetch the TensorPool cluster dashboard URL
+    """
+
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+    }
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/cluster/list",
+            json=payload,
+            headers=headers,
+            timeout=15,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch clusters: {str(e)}")
+
+    fallback_msg = (
+        f"Malformed response from server. Status code: {response.status_code}"
+    )
+
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return fallback_msg
+
+    message = res.get("message", fallback_msg)
+    return message
+
+
+def change_cluster_status(id: str, target_status: bool) -> Tuple[bool, str]:
+    """
+    Change the status of a cluster
+    Args:
+        id: The cluster id or the instance id of the cluster.
+        target_status: The target status to set (True for ON, False for OFF)
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        "id": id,
+        "status": target_status,
+    }
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/cluster/change-status",
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to change cluster status: {str(e)}"
+
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return (
+            False,
+            f"Malformed response from server. Status code: {response.status_code}",
+        )
+
+    status = res.get("status")
+    message = res.get("message")
+
+    if status == "success":
+        return True, message
+    else:
+        return False, message
+
+
+def create_new_cluster(
+    public_keys: str, instance_type: str, instance_name:str = None, cloud_init:str = None,
+    num_nodes: int = 1
+) -> Tuple[bool, str]:
+    """
+    Create a new cluster
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "key": os.environ["TENSORPOOL_KEY"],
+        "instance_type": instance_type,
+        "public_keys": public_keys,
+        "name": instance_name,
+        # "cloud_init": cloud_init, # str of a yaml
+        "num_nodes": num_nodes,
+    }
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/cluster/create",
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to create cluster: {str(e)}"
+
+    try:
+        res = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return (
+            False,
+            f"Malformed response from server. Status code: {response.status_code}",
+        )
+
+    status = res.get("status")
+    message = res.get("message")
+    ip = res.get("ip")
 
     if status == "success":
         return True, message
