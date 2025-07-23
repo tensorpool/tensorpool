@@ -11,7 +11,7 @@ TensorPool is the easiest way to deploy and manage GPU clusters, at a fraction o
 
 ## Prerequisites
 1. Create an account at [tensorpool.dev](https://tensorpool.dev)
-2. Get your API key from the [dashboard](https://dashboard.tensorpool.dev/dashboard)
+2. Get your API key from the [dashboard](https://dashboard.tensorpool.dev/api-key)
 3. Install the CLI:
 ```bash
 pip install tensorpool
@@ -91,7 +91,7 @@ tp cluster create -i <public_key_path> -t <instance_type> [options]
 
 **Optional Arguments:**
 - `--name`: Custom cluster name
-- `-n, --num-nodes`: Number of nodes (required for `8xH100` instance type)
+- `-n, --num-nodes`: Number of nodes (must be `8xH100` instance type for multi-node)
 
 **Examples:**
 ```bash
