@@ -1,3 +1,0 @@
-commands = ["pip install kokoro>=0.3.1 soundfile", "python main.py"]
-optimization_priority = "TIME"
-gpu = "T4"

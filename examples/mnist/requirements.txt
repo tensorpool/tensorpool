@@ -1,3 +1,0 @@
-tensorpool
-torch
-torchvision==0.20.0
