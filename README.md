@@ -181,30 +181,26 @@ tp nfs destroy <storage_id>
 **Arguments:**
 - `storage_id`: The ID of the storage volume to destroy
 
-### Creating NFS Volumes
-```bash
-tp nfs create -s 1000 --name shared-datasets
-```
+### NFS Storage Example Workflow
 
-### Attaching Storage to Clusters
 ```bash
-# Attach to a single cluster
+# 1. Create a 1TB NFS volume named "shared-datasets"
+tp nfs create -s 1000 --name shared-datasets
+
+# 2. Attach the volume to a single cluster
 tp nfs attach <storage_id> <cluster_id>
 
-# Attach to multiple clusters
+# 3. Attach the volume to multiple clusters
 tp nfs attach <storage_id> <cluster_id_1> <cluster_id_2> <cluster_id_3>
-```
 
-### Detaching Storage from Clusters
-```bash
-# Detach from a single cluster
+# 4. Detach the volume from a single cluster
 tp nfs detach <storage_id> <cluster_id>
 
-# Detach from multiple clusters
+# 5. Detach the volume from multiple clusters
 tp nfs detach <storage_id> <cluster_id_1> <cluster_id_2>
 ```
 
-The NFS volume will be automatically mounted on all nodes in the cluster, at `/mnt/data/`.
+You replace `<storage_id>` and `<cluster_id>` with your actual IDs as needed.
 
 ## Best Practices
 
