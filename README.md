@@ -202,7 +202,7 @@ tp nfs detach <storage_id> <cluster_id_1> <cluster_id_2>
 
 You replace `<storage_id>` and `<cluster_id>` with your actual IDs as needed.
 
-## Storage Locations
+## Storage Locations (Multi-node Clusters)
 
 ### Local NVMe Storage
 Each cluster node comes with high-performance local NVMe storage mounted at:
