@@ -202,6 +202,18 @@ tp nfs detach <storage_id> <cluster_id_1> <cluster_id_2>
 
 You replace `<storage_id>` and `<cluster_id>` with your actual IDs as needed.
 
+## Storage Locations
+
+### Local NVMe Storage
+Each cluster node comes with high-performance local NVMe storage mounted at:
+```
+/mnt/local
+```
+### NFS Volume Mount Points
+When you attach an NFS volume to your cluster, it will be mounted at:
+```
+/mnt/nfs
+```
 ## Best Practices
 
 - **SSH Key Management**: Always use strong SSH keys and keep your private keys secure
