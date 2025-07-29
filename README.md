@@ -214,6 +214,12 @@ When you attach an NFS volume to your cluster, it will be mounted at:
 ```
 /mnt/nfs
 ```
+
+**Convenient Symlinks:**
+For easy access, the storage locations are also symlinked in your home directory:
+- Local storage: `~/local` → `/mnt/local`
+- NFS storage: `~/nfs` → `/mnt/nfs`
+
 ## Best Practices
 
 - **SSH Key Management**: Always use strong SSH keys and keep your private keys secure
