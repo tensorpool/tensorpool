@@ -12,11 +12,28 @@ TensorPool is the easiest way to deploy and manage GPU clusters, at a fraction o
 ## Prerequisites
 1. Create an account at [tensorpool.dev](https://tensorpool.dev)
 2. Get your API key from the [dashboard](https://dashboard.tensorpool.dev/api-key)
-3. Install the CLI:
+3. Set your API key as an environment variable:
+```bash
+export TENSORPOOL_API_KEY="your_api_key_here"
+```
+   Or add it to your shell profile for persistence:
+   
+   **For bash users:**
+   ```bash
+   echo 'export TENSORPOOL_API_KEY="your_api_key_here"' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+   
+   **For zsh users:**
+   ```bash
+   echo 'export TENSORPOOL_API_KEY="your_api_key_here"' >> ~/.zshrc
+   source ~/.zshrc
+   ```
+4. Install the CLI:
 ```bash
 pip install tensorpool
 ```
-4. Generate SSH keys (if you don't have them):
+5. Generate SSH keys (if you don't have them):
 ```bash
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa
 ```
