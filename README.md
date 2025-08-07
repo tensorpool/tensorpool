@@ -179,6 +179,8 @@ tp nfs attach <storage_id> <cluster_ids> [<cluster_ids> ...]
 - `storage_id`: The ID of the storage volume to attach
 - `cluster_ids`: One or more cluster IDs to attach the volume to
 
+**Note:** NFS volumes can only be attached to multi-node clusters (clusters with 2 or more nodes). 
+
 ### Detaching NFS Volumes
 
 ```bash
