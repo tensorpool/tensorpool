@@ -91,6 +91,15 @@ tp cluster destroy <cluster_id>
 | `2xH100` | 2 | H100 |
 | `4xH100` | 4 | H100 |
 | `8xH100` | 8 | H100 |
+| `1xH200` | 1 | H200 |
+| `2xH200` | 2 | H200 |
+| `4xH200` | 4 | H200 |
+| `8xH200` | 8 | H200 |
+| `1xB200` | 1 | B200 |
+| `2xB200` | 2 | B200 |
+| `4xB200` | 4 | B200 |
+| `8xB200` | 8 | B200 |
+| `1xMI300x` | 1 | MI300x |
 
 *More instance types coming soon!*
 
@@ -104,16 +113,25 @@ tp cluster create -i <public_key_path> -t <instance_type> [options]
 
 **Required Arguments:**
 - `-i, --public-key`: Path to your public SSH key (e.g., `~/.ssh/id_rsa.pub`)
-- `-t, --instance-type`: Instance type (`1xH100`, `2xH100`, `4xH100`, `8xH100`)
+- `-t, --instance-type`: Instance type (`1xH100`, `2xH100`, `4xH100`, `8xH100`, `1xH200`, `2xH200`, `4xH200`, `8xH200`, `1xB200`, `2xB200`, `4xB200`, `8xB200`, `1xMI300x`)
 
 **Optional Arguments:**
 - `--name`: Custom cluster name
-- `-n, --num-nodes`: Number of nodes (must be `8xH100` instance type for multi-node)
+- `-n, --num-nodes`: Number of nodes (only supported for `8xH100` instance type for multi-node)
 
 **Examples:**
 ```bash
 # Single node H100
 tp cluster create -i ~/.ssh/id_rsa.pub -t 1xH100 --name dev-cluster
+
+# Single node H200
+tp cluster create -i ~/.ssh/id_rsa.pub -t 1xH200 --name h200-cluster
+
+# Single node B200
+tp cluster create -i ~/.ssh/id_rsa.pub -t 1xB200 --name b200-cluster
+
+# Single node MI300x
+tp cluster create -i ~/.ssh/id_rsa.pub -t 1xMI300x --name mi300x-cluster
 
 # 2-node cluster with 8xH100 each (16 GPUs total)
 tp cluster create -i ~/.ssh/id_rsa.pub -t 8xH100 -n 2 --name large-training
