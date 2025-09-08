@@ -99,7 +99,7 @@ tp cluster destroy <cluster_id>
 | `2xB200` | 2 | B200 |
 | `4xB200` | 4 | B200 |
 | `8xB200` | 8 | B200 |
-| `1xMI300x` | 1 | MI300x |
+| `1xMI300X` | 1 | MI300X |
 
 *More instance types coming soon!*
 
@@ -113,7 +113,7 @@ tp cluster create -i <public_key_path> -t <instance_type> [options]
 
 **Required Arguments:**
 - `-i, --public-key`: Path to your public SSH key (e.g., `~/.ssh/id_rsa.pub`)
-- `-t, --instance-type`: Instance type (`1xH100`, `2xH100`, `4xH100`, `8xH100`, `1xH200`, `2xH200`, `4xH200`, `8xH200`, `1xB200`, `2xB200`, `4xB200`, `8xB200`, `1xMI300x`)
+- `-t, --instance-type`: Instance type (`1xH100`, `2xH100`, `4xH100`, `8xH100`, `1xH200`, `2xH200`, `4xH200`, `8xH200`, `1xB200`, `2xB200`, `4xB200`, `8xB200`, `1xMI300X`)
 
 **Optional Arguments:**
 - `--name`: Custom cluster name
@@ -130,8 +130,8 @@ tp cluster create -i ~/.ssh/id_rsa.pub -t 1xH200 --name h200-cluster
 # Single node B200
 tp cluster create -i ~/.ssh/id_rsa.pub -t 1xB200 --name b200-cluster
 
-# Single node MI300x
-tp cluster create -i ~/.ssh/id_rsa.pub -t 1xMI300x --name mi300x-cluster
+# Single node MI300X
+tp cluster create -i ~/.ssh/id_rsa.pub -t 1xMI300X --name mi300x-cluster
 
 # 2-node cluster with 8xH100 each (16 GPUs total)
 tp cluster create -i ~/.ssh/id_rsa.pub -t 8xH100 -n 2 --name large-training

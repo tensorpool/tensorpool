@@ -406,7 +406,7 @@ def main():
     create_parser.add_argument(
         "-t",
         "--type",
-        choices=["1xH100", "2xH100", "4xH100", "8xH100", "1xH200", "2xH200", "4xH200", "8xH200", "1xB200", "2xB200", "4xB200", "8xB200", "1xMI300x"],
+        choices=["1xH100", "2xH100", "4xH100", "8xH100", "1xH200", "2xH200", "4xH200", "8xH200", "1xB200", "2xB200", "4xB200", "8xB200", "1xMI300X"],
         help="Instance type",
     )
     create_parser.add_argument(
