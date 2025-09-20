@@ -3,10 +3,8 @@
 TensorPool is the easiest way to deploy and manage GPU clusters, at a fraction of the cost of traditional cloud providers.
 
 ## Features
-- **Zero Cloud Setup**: No GCP, no AWS, no Docker, no cloud accounts required
 - **Instant GPU Clusters**: Deploy multi-node GPU clusters with a single command
 - **Flexible Storage**: Attach and detach NFS volumes across your clusters
-- **>50% cheaper than traditional cloud providers**: TensorPool aggregates demand across multiple cloud provides and thus offers GPUs at a fraction of market price. Check out our pricing here: [TensorPool Pricing](https://tensorpool.dev/pricing)
 - **High-Performance Networking**: All clusters come with high-speed interconnects for distributed training
 
 ## Prerequisites
@@ -17,13 +15,13 @@ TensorPool is the easiest way to deploy and manage GPU clusters, at a fraction o
 export TENSORPOOL_API_KEY="your_api_key_here"
 ```
    Or add it to your shell profile for persistence:
-   
+
    **For bash users:**
    ```bash
    echo 'export TENSORPOOL_API_KEY="your_api_key_here"' >> ~/.bashrc
    source ~/.bashrc
    ```
-   
+
    **For zsh users:**
    ```bash
    echo 'export TENSORPOOL_API_KEY="your_api_key_here"' >> ~/.zshrc
@@ -121,17 +119,17 @@ tp cluster create -i <public_key_path> -t <instance_type> [options]
 
 **Examples:**
 ```bash
-# Single node H100
-tp cluster create -i ~/.ssh/id_rsa.pub -t 1xH100 --name dev-cluster
+# Single H100
+tp cluster create -i ~/.ssh/id_rsa.pub -t 1xH100
 
 # Single node H200
-tp cluster create -i ~/.ssh/id_rsa.pub -t 1xH200 --name h200-cluster
+tp cluster create -i ~/.ssh/id_rsa.pub -t 8xH200
 
 # Single node B200
-tp cluster create -i ~/.ssh/id_rsa.pub -t 1xB200 --name b200-cluster
+tp cluster create -i ~/.ssh/id_rsa.pub -t 8xB200
 
 # Single node MI300X
-tp cluster create -i ~/.ssh/id_rsa.pub -t 1xMI300X --name mi300x-cluster
+tp cluster create -i ~/.ssh/id_rsa.pub -t 8xMI300X
 
 # 2-node cluster with 8xH100 each (16 GPUs total)
 tp cluster create -i ~/.ssh/id_rsa.pub -t 8xH100 -n 2 --name large-training
@@ -197,7 +195,7 @@ tp nfs attach <storage_id> <cluster_ids> [<cluster_ids> ...]
 - `storage_id`: The ID of the storage volume to attach
 - `cluster_ids`: One or more cluster IDs to attach the volume to
 
-**Note:** NFS volumes can only be attached to multi-node clusters (clusters with 2 or more nodes). 
+**Note:** NFS volumes can only be attached to multi-node clusters (clusters with 2 or more nodes).
 
 ### Detaching NFS Volumes
 
@@ -259,7 +257,7 @@ For easy access, the storage locations are also symlinked in your home directory
 
 ## Best Practices
 
-- **SSH Key Management**: Always use strong SSH keys and keep your private keys secure
+- **SSH Key Management**: Keep your private ssh keys secure
 - **Cluster Naming**: Use descriptive names for your clusters to easily identify them
 - **Cost Management**: Destroy clusters when not in use to avoid unnecessary charges
 - **Data Persistence**: Use NFS volumes for important data that needs to persist across cluster lifecycles
@@ -269,13 +267,13 @@ For easy access, the storage locations are also symlinked in your home directory
 ## Getting Help
 
 - **Documentation**: [tensorpool.dev](https://tensorpool.dev)
-- **Community**: [Join our Discord](https://discord.gg/Kzan7CZauT)
+- **Community**: [Join our Slack](https://join.slack.com/t/tensorpoolpublic/shared_invite/zt-3aw1a1ncw-vF9vTjmqiGbOlhhcnzA03w)
 - **Support**: team@tensorpool.dev
 - **Updates**: Follow us on [Twitter/X](https://x.com/TensorPool)
 
 ## Why TensorPool?
 
-- **Simplicity**: Deploy GPU clusters without the complexity of cloud setup, networking, or quota management
+- **Simplicity**: Deploy GPU clusters without the complexity of cloud setup, networking, or quotas
 - **Flexibility**: Scale from single GPUs to massive multi-node clusters instantly
 - **Cost Effective**: Aggregated GPU capacity from multiple providers means better pricing
 - **Performance**: High-speed networking and optimized configurations for ML workloads
