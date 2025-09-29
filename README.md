@@ -55,7 +55,8 @@ tp cluster list
 ```
 
 ### 3. SSH Into Your Cluster
-Once your cluster is ready, you'll receive the connection details. SSH into your nodes and start training!
+Once your cluster is ready, you'll receive the connection details. SSH into your nodes and start training! 
+
 Example SSH command: ssh tensorpool@192.168.1.42
 
 ### 4. Clean Up
