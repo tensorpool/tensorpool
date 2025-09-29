@@ -56,6 +56,7 @@ tp cluster list
 
 ### 3. SSH Into Your Cluster
 Once your cluster is ready, you'll receive the connection details. SSH into your nodes and start training!
+Example SSH command: ssh tensorpool@192.168.1.42
 
 ### 4. Clean Up
 When you're done, destroy your cluster:
@@ -72,7 +73,7 @@ tp cluster destroy <cluster_id>
 - `tp cluster destroy <cluster_id>` - Terminate a cluster
 
 ### Network File System (NFS)
-- `tp nfs create` - Create a new NFS volume
+- `tp nfs create -s <size_gb>` - Create a new NFS volume
 - `tp nfs list` - View all your NFS volumes
 - `tp nfs attach <storage_id> <cluster_ids>` - Attach storage to one or more clusters
 - `tp nfs detach <storage_id> <cluster_ids>` - Detach storage from one or more clusters
