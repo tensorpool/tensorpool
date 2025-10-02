@@ -244,21 +244,15 @@ You replace `<storage_id>` and `<cluster_id>` with your actual IDs as needed.
 
 ## Storage Locations (Multi-node Clusters)
 
-### Local NVMe Storage
-Each cluster node comes with high-performance local NVMe storage mounted at:
-```
-/mnt/local
-```
 ### NFS Volume Mount Points
 When you attach an NFS volume to your cluster, it will be mounted at:
 ```
-/mnt/nfs
+/mnt/nfs-<storage_id>
 ```
 
 **Convenient Symlinks:**
 For easy access, the storage locations are also symlinked in your home directory:
-- Local storage: `~/local` → `/mnt/local`
-- NFS storage: `~/nfs` → `/mnt/nfs`
+- NFS storage: `~/nfs` → `/mnt/nfs-<storage_id>`
 
 ## Best Practices
 
