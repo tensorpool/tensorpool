@@ -252,7 +252,7 @@ When you attach an NFS volume to your cluster, it will be mounted at:
 
 **Convenient Symlinks:**
 For easy access, the storage locations are also symlinked in your home directory:
-- NFS storage: `~/nfs` → `/mnt/nfs-<storage_id>`
+- NFS storage: `~/nfs-<storage_id>` → `/mnt/nfs-<storage_id>`
 
 ## Best Practices
 
