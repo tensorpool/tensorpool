@@ -1,33 +1,11 @@
 # TensorPool
 
-TensorPool is the easiest way to deploy and manage GPU clusters, at a fraction of the cost of traditional cloud providers.
-
-## Features
-- **Instant GPU Clusters**: Deploy multi-node GPU clusters with a single command
-- **Flexible Storage**: Attach and detach NFS volumes across your clusters
-- **High-Performance Networking**: All clusters come with high-speed interconnects for distributed training
+TensorPool is a git style interface to use GPUs with on demand multi-node clusters.
 
 ## Prerequisites
 1. Create an account at [tensorpool.dev](https://tensorpool.dev)
-2. Get your API key from the [dashboard](https://dashboard.tensorpool.dev/api-key)
-3. Set your API key as an environment variable:
-```bash
-export TENSORPOOL_API_KEY="your_api_key_here"
-```
-   Or add it to your shell profile for persistence:
-
-   **For bash users:**
-   ```bash
-   echo 'export TENSORPOOL_API_KEY="your_api_key_here"' >> ~/.bashrc
-   source ~/.bashrc
-   ```
-
-   **For zsh users:**
-   ```bash
-   echo 'export TENSORPOOL_API_KEY="your_api_key_here"' >> ~/.zshrc
-   source ~/.zshrc
-   ```
-4. Install the CLI:
+2. Get your API key from the [dashboard](https://tensorpool.dev/dashboard/api-key)
+3. Install the CLI:
 ```bash
 pip install tensorpool
 ```
@@ -269,13 +247,3 @@ For easy access, the storage locations are also symlinked in your home directory
 - **Community**: [Join our Slack](https://join.slack.com/t/tensorpoolpublic/shared_invite/zt-3aw1a1ncw-vF9vTjmqiGbOlhhcnzA03w)
 - **Support**: team@tensorpool.dev
 - **Updates**: Follow us on [Twitter/X](https://x.com/TensorPool)
-
-## Why TensorPool?
-
-- **Simplicity**: Deploy GPU clusters without the complexity of cloud setup, networking, or quotas
-- **Flexibility**: Scale from single GPUs to massive multi-node clusters instantly
-- **Cost Effective**: Aggregated GPU capacity from multiple providers means better pricing
-- **Performance**: High-speed networking and optimized configurations for ML workloads
-- **No Lock-in**: Standard SSH access means you can use any tools and frameworks you prefer
-
-Ready to scale your ML training? Get started at [tensorpool.dev](https://tensorpool.dev)!

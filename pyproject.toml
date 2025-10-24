@@ -1,10 +1,10 @@
 [project]
 name = "tensorpool"
-version = "4.4.0rc6"
-description = "TensorPool is the easiest way to use cloud GPUs."
+version = "0.0.3"
+description = "TensorPool https://tensorpool.dev/"
 readme = "README.md"
 requires-python = ">=3.8"
-dependencies = ["requests>=2.32.3", "toml>=0.10.2", "tqdm>=4.67.1"]
+dependencies = ["requests>=2.32.3", "tqdm>=4.67.1", "websockets>=13.1"]
 authors = [{ name = "Joshua Martinez", email = "joshua@tensorpool.dev" }]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -32,4 +32,15 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-dev = ["ruff>=0.9.3"]
+dev = ["ruff>=0.9.3", "pytest>=7.0.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v", "--tb=short", "--strict-markers"]
+
+# [[tool.uv.index]]
+# name = "pypi"
+# url = "https://api.pyx.dev/simple/pypi"
