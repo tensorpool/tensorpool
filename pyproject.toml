@@ -1,6 +1,6 @@
 [project]
 name = "tensorpool"
-version = "0.0.3"
+version = "0.0.4"
 description = "TensorPool https://tensorpool.dev/"
 readme = "README.md"
 requires-python = ">=3.8"
