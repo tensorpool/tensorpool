@@ -15,7 +15,6 @@ import threading
 import queue
 from .spinner import Spinner
 import platform
-from requests.exceptions import ConnectionError
 
 ENGINE: Final = os.environ.get("TENSORPOOL_ENGINE", "https://engine.tensorpool.dev")
 
@@ -293,7 +292,7 @@ def get_empty_tp_config() -> Tuple[bool, Optional[Dict], Optional[str]]:
 
 def job_listen(job_id: str) -> Tuple[bool, str]:
     """
-    Listen to a job's output stream
+    Listen to a job's output stream via WebSocket
     Args:
         job_id: The ID of the job to listen to
     Returns:
@@ -302,107 +301,29 @@ def job_listen(job_id: str) -> Tuple[bool, str]:
     if not job_id:
         return False, "Job ID is required"
 
-    headers = _get_headers()
-    payload = {"system": platform.system()}
+    # Build endpoint
+    endpoint = f"/job/listen/{job_id}"
 
-    try:
-        response = requests.get(
-            f"{ENGINE}/job/listen/{job_id}",
-            params=payload,
-            headers=headers,
-            timeout=30,
+    # Empty payload
+    # payload = {}
+
+    # Run the async function without a spinner so messages print directly
+    success, message = asyncio.run(
+        _ws_operation_async(
+            endpoint=endpoint,
+            spinner=None,
+            payload=None,
+            handle_user_input=False,
+            success_message="Job listening completed",
+            error_message="Job listening failed",
+            unexpected_end_message=(
+                "Connection ended unexpectedly while listening to job.\n"
+                f"Check 'tp job info {job_id}' to see the current status."
+            ),
         )
+    )
 
-        if response.status_code != 200:
-            try:
-                error_data = response.json()
-                error_msg = error_data.get(
-                    "message", f"Failed to connect to job: {response.text}"
-                )
-            except:
-                error_msg = f"Failed to connect to job: {response.text}"
-            return False, error_msg
-
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            return False, "Received malformed response from server"
-
-        # Execute command first if present
-        if "command" in data:
-            command = data["command"]
-            if not command:
-                # Skip execution if command is None or empty
-                pass
-            else:
-                show_stdout = data.get("command_show_stdout", False)
-
-                try:
-                    # Set up environment to force unbuffered output
-                    env = os.environ.copy()
-                    env["PYTHONUNBUFFERED"] = "1"
-
-                    process = subprocess.Popen(
-                        command,
-                        shell=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        stdin=subprocess.DEVNULL,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True,
-                        env=env,
-                    )
-
-                    # Read output in real-time
-                    stdout_lines = []
-                    stderr_lines = []
-
-                    # Read stdout line by line
-                    for line in process.stdout:
-                        stdout_lines.append(line)
-                        if show_stdout:
-                            sys.stdout.write(line)
-                            sys.stdout.flush()
-
-                    # Wait for process to complete and get any remaining stderr
-                    stderr = process.stderr.read()
-                    if stderr:
-                        stderr_lines.append(stderr)
-                        if show_stdout:
-                            sys.stderr.write(stderr)
-                            sys.stderr.flush()
-
-                    returncode = process.wait()
-
-                    # Print errors if command failed and not already shown
-                    if returncode != 0 and not show_stdout:
-                        stderr_text = "".join(stderr_lines)
-                        stdout_text = "".join(stdout_lines)
-                        if stderr_text:
-                            print(f"Command error: {stderr_text}")
-                        if stdout_text:
-                            print(f"Command output: {stdout_text}")
-
-                except Exception as e:
-                    print(f"Failed to execute command: {str(e)}")
-                    return False, f"Failed to execute command: {str(e)}"
-
-        # Then display message if present
-        if "message" in data:
-            print(data["message"], flush=True)
-
-        return True, ""
-
-    except KeyboardInterrupt:
-        print("\nOperation cancelled")
-        return True, ""
-    except ConnectionError as e:
-        error_msg = f"Connection error: {str(e)}"
-        print(error_msg)
-        return False, error_msg
-    except Exception as e:
-        return False, f"Error while listening to job: {str(e)}"
+    return success, message
 
 
 def fetch_dashboard() -> str:
@@ -446,11 +367,13 @@ async def _job_push_async(
     api_key: str,
     tensorpool_pub_key_path: str,
     tensorpool_priv_key_path: str,
-) -> bool:
+) -> Tuple[bool, Optional[str]]:
     ws_url = (
         f"{ENGINE.replace('http://', 'ws://').replace('https://', 'wss://')}/job/push"
     )
     # print("ws_url:", ws_url)
+
+    job_id = None
 
     try:
         async with websockets.connect(
@@ -475,6 +398,10 @@ async def _job_push_async(
                 message = await websocket.recv()
                 data = json.loads(message)
                 # print("recieved data:", data)
+
+                # Capture job_id if present
+                if "job_id" in data and not job_id:
+                    job_id = data["job_id"]
 
                 # Print status messages
                 if "message" in data:
@@ -590,25 +517,25 @@ async def _job_push_async(
             print(e.reason)
         # else:
         #     print("No reason provided")
-        return False
+        return False, job_id
 
     except websockets.exceptions.WebSocketException as e:
         print(f"WebSocket error: {str(e)}")
-        return False
+        return False, None
 
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
-        return False
+        return False, None
 
     # If we get here, the WebSocket closed normally
-    return True
+    return True, job_id
 
 
 def job_push(
     tp_config_path: str,
     tensorpool_pub_key_path: str,
     tensorpool_priv_key_path: str,
-) -> bool:
+) -> Tuple[bool, Optional[str]]:
     """
     Push a job
     Args:
@@ -616,42 +543,42 @@ def job_push(
         tensorpool_pub_key_path: Path to tensorpool public key
         tensorpool_priv_key_path: Path to tensorpool private key
     Returns:
-        bool: True if job succeeded, False otherwise
+        Tuple[bool, Optional[str]]: (success status, job_id if available)
     """
     if not os.path.exists(tp_config_path):
         print(f"Config file not found: {tp_config_path}")
-        return False
+        return False, None
 
     # Check that both key paths are provided
     if not tensorpool_pub_key_path or not tensorpool_priv_key_path:
         print("Both tensorpool public and private key paths are required")
-        return False
+        return False, None
 
     if not os.path.exists(tensorpool_pub_key_path):
         print(f"Public key file not found: {tensorpool_pub_key_path}")
-        return False
+        return False, None
     if not os.path.exists(tensorpool_priv_key_path):
         print(f"Private key file not found: {tensorpool_priv_key_path}")
-        return False
+        return False, None
 
     try:
         with open(tp_config_path, "r") as f:
             tp_config = f.read()
     except Exception as e:
         print(f"Failed to read {tp_config_path}: {str(e)}")
-        return False
+        return False, None
 
     try:
         with open(tensorpool_pub_key_path, "r") as f:
             public_key_contents = f.read().strip()
     except Exception as e:
         print(f"Failed to read {tensorpool_pub_key_path}: {str(e)}")
-        return False
+        return False, None
 
     api_key = get_tensorpool_key()
     if not api_key:
         print("TENSORPOOL_KEY not found. Please set your API key.")
-        return False
+        return False, None
 
     # Run the async function
     return asyncio.run(
@@ -669,7 +596,6 @@ def job_pull(
     job_id: str,
     files: Optional[List[str]] = None,
     dry_run: bool = False,
-    tensorpool_pub_key_path: Optional[str] = None,
     tensorpool_priv_key_path: Optional[str] = None,
 ) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
     """
@@ -678,7 +604,6 @@ def job_pull(
         job_id: The ID of the job to pull
         files: Optional list of specific files to pull
         dry_run: If True, only preview files without downloading
-        tensorpool_pub_key_path: Path to tensorpool public key
         tensorpool_priv_key_path: Path to tensorpool private key
     Returns:
         A tuple containing a download map (or None) and an optional message
@@ -697,8 +622,6 @@ def job_pull(
     # Add private key path if provided
     if tensorpool_priv_key_path:
         params["private_key_path"] = tensorpool_priv_key_path
-    if tensorpool_pub_key_path:
-        params["public_key_path"] = tensorpool_pub_key_path
 
     try:
         response = requests.get(
@@ -954,7 +877,7 @@ def job_list(org: bool = False) -> Tuple[bool, str]:
 
 async def _ws_operation_async(
     endpoint: str,
-    spinner: Spinner,
+    spinner: Optional[Spinner] = None,
     payload: Optional[dict] = None,
     handle_user_input: bool = False,
     success_message: str = "Operation completed successfully",
@@ -966,7 +889,7 @@ async def _ws_operation_async(
 
     Args:
         endpoint: WebSocket endpoint path (e.g., "/cluster/create", "/nfs/create")
-        spinner: Spinner instance for UI feedback
+        spinner: Optional Spinner instance for UI feedback. If None, messages print directly.
         payload: Optional payload to send after API key authentication
         handle_user_input: Whether to handle interactive user input requests
         success_message: Default message for successful completion
@@ -1011,7 +934,8 @@ async def _ws_operation_async(
                 if handle_user_input and status == "input":
                     # Server is requesting user input for confirmation
                     # Pause spinner first to clear the line
-                    spinner.pause()
+                    if spinner:
+                        spinner.pause()
 
                     # Print the prompt message directly (don't use spinner.update_text)
                     if msg:
@@ -1020,14 +944,18 @@ async def _ws_operation_async(
                         user_response = input()
 
                     # Resume spinner after user input
-                    spinner.resume()
+                    if spinner:
+                        spinner.resume()
 
                     # Send user response back to server
                     await websocket.send(json.dumps({"response": user_response}))
                     continue
 
                 if msg:
-                    spinner.update_text(msg)
+                    if spinner:
+                        spinner.update_text(msg)
+                    else:
+                        print(msg, flush=True)
 
                 # Break on completion
                 if status in ["success", "error"]:
@@ -1052,9 +980,11 @@ async def _ws_operation_async(
         return False, f"Unexpected error: {str(e)}"
 
     if status == "success":
-        return True, msg or success_message
+        # If no spinner, msg was already printed to stdout, so return empty string to avoid double-printing
+        return True, (msg or success_message) if spinner else ""
     elif status == "error":
-        return False, msg or error_message
+        # If no spinner, msg was already printed to stdout, so return empty string to avoid double-printing
+        return False, (msg or error_message) if spinner else ""
     else:
         # Connection ended without proper status - include close info if available
         final_message = unexpected_end_message
