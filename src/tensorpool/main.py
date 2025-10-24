@@ -36,7 +36,6 @@ from tensorpool.helpers import (
     ENGINE,
 )
 from tensorpool.spinner import Spinner
-from typing import Optional, List, Tuple
 
 
 def gen_tp_config(no_input: bool = False) -> None:
@@ -285,6 +284,11 @@ def main():
 
     run_parser = job_subparsers.add_parser("push", help="Run a job on TensorPool")
     run_parser.add_argument("tp_config_path", help="Path to a tp.{config}.toml file")
+    # run_parser.add_argument(
+    #     "--listen",
+    #     action="store_true",
+    #     help="Automatically listen to job output after pushing",
+    # )
 
     job_list_parser = job_subparsers.add_parser(
         "list", aliases=["ls"], help="List jobs"
@@ -310,6 +314,18 @@ def main():
 
     pull_parser = job_subparsers.add_parser("pull", help="Pull job output files")
     pull_parser.add_argument("job_id", help="ID of the job to pull")
+    pull_parser.add_argument(
+        "-i",
+        "--private-key",
+        help="Path to SSH private key (e.g., ~/.ssh/id_ed25519)",
+        required=False,
+        default=None,
+    )
+    pull_parser.add_argument(
+        "--path",
+        nargs="*",
+        help="Optional path(s) of specific files to pull (e.g., --path output/model.pt logs/training.log)",
+    )
     pull_group = pull_parser.add_mutually_exclusive_group()
     pull_group.add_argument(
         "--force", action="store_true", help="Force overwrite existing files"
@@ -424,9 +440,19 @@ def main():
             pub_key_path = os.path.expanduser("~/.ssh/id_ed25519.pub")
             priv_key_path = os.path.expanduser("~/.ssh/id_ed25519")
 
-            success = job_push(args.tp_config_path, pub_key_path, priv_key_path)
+            success, job_id = job_push(args.tp_config_path, pub_key_path, priv_key_path)
             if not success:
                 exit(1)
+
+            # # Auto-listen if --listen flag is set and we have a job_id
+            # if args.listen and job_id:
+            #     print(f"\nListening to job {job_id}...")
+            #     listen_success, listen_message = job_listen(job_id)
+            #     if listen_message:
+            #         print(listen_message)
+            #     if not listen_success:
+            #         exit(1)
+
             return
         elif args.job_command == "listen":
             success, message = job_listen(args.job_id)
@@ -441,16 +467,17 @@ def main():
                 pull_parser.print_help()
                 return
 
-            # Use the same key paths as job_push for consistency
-            pub_key_path = os.path.expanduser("~/.ssh/id_ed25519.pub")
-            priv_key_path = os.path.expanduser("~/.ssh/id_ed25519")
+            # Extract file paths if provided
+            files = getattr(args, "path", None)
+            if files is not None and len(files) == 0:
+                files = None
 
             with Spinner(text="Fetching job files..."):
                 download_map, msg = job_pull(
                     args.job_id,
+                    files=files,
                     # dry_run=args.dry_run,
-                    tensorpool_pub_key_path=pub_key_path,
-                    tensorpool_priv_key_path=priv_key_path,
+                    tensorpool_priv_key_path=args.private_key,
                 )
 
             if not download_map:
