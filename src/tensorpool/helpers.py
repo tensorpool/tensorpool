@@ -711,11 +711,6 @@ def job_pull(
                 print(f"Failed to execute command: {str(e)}")
                 return None, f"Failed to execute command: {str(e)}"
 
-    # Display message if present
-    if "message" in result:
-        print(result["message"], flush=True)
-
-    # Return download map if present (for backward compatibility)
     download_map = result.get("download_map")
     message = result.get("message")
 
