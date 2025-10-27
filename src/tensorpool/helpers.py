@@ -509,14 +509,20 @@ async def _job_push_async(
                     await websocket.send(json.dumps(response))
 
     except websockets.exceptions.ConnectionClosed as e:
-        # print(f"WebSocket connection closed: code = {e.code}, reason = {e.reason}")
+        # Code 1000 is normal/successful closure
+        if e.code == 1000:
+            return True, job_id
 
-        # TODO: not show for code 1000 bc that success?
+        # Code 1006 is abnormal closure - connection lost but operation may still be happening
+        if e.code == 1006:
+            print("Connection lost during job submission.")
+            print("Check job status with `tp job list`. Job likely has to be resubmitted.")
+            return False, job_id
+
+        # Other codes indicate errors
         print(f"Job connection closed, code = {e.code}")
         if e.reason:
             print(e.reason)
-        # else:
-        #     print("No reason provided")
         return False, job_id
 
     except websockets.exceptions.WebSocketException as e:
