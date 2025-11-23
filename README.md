@@ -50,7 +50,7 @@ options:
 
 ## Documentation
 
-📚 **Full documentation at [docs.tensorpool.dev](https://docs.tensorpool.dev/)**
+**Full documentation at [docs.tensorpool.dev](https://docs.tensorpool.dev/)**
 
 - [Installation Guide](https://docs.tensorpool.dev/installation)
 - [CLI Reference](https://docs.tensorpool.dev/cli/overview)
