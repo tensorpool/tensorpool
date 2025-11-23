@@ -363,10 +363,7 @@ def fetch_dashboard() -> str:
 
 async def _job_push_async(
     tp_config: str,
-    public_key_contents: str,
     api_key: str,
-    tensorpool_pub_key_path: str,
-    tensorpool_priv_key_path: str,
 ) -> Tuple[bool, Optional[str]]:
     ws_url = (
         f"{ENGINE.replace('http://', 'ws://').replace('https://', 'wss://')}/job/push"
@@ -385,9 +382,6 @@ async def _job_push_async(
             # Second message: Send job configuration
             initial_data = {
                 "tp_config": tp_config,
-                "public_key_path": tensorpool_pub_key_path,
-                "private_key_path": tensorpool_priv_key_path,
-                "public_keys": [public_key_contents],
                 "system": platform.system(),
             }
 
@@ -539,15 +533,11 @@ async def _job_push_async(
 
 def job_push(
     tp_config_path: str,
-    tensorpool_pub_key_path: str,
-    tensorpool_priv_key_path: str,
 ) -> Tuple[bool, Optional[str]]:
     """
     Push a job
     Args:
         tp_config_path: Path to the tp config file
-        tensorpool_pub_key_path: Path to tensorpool public key
-        tensorpool_priv_key_path: Path to tensorpool private key
     Returns:
         Tuple[bool, Optional[str]]: (success status, job_id if available)
     """
@@ -555,30 +545,11 @@ def job_push(
         print(f"Config file not found: {tp_config_path}")
         return False, None
 
-    # Check that both key paths are provided
-    if not tensorpool_pub_key_path or not tensorpool_priv_key_path:
-        print("Both tensorpool public and private key paths are required")
-        return False, None
-
-    if not os.path.exists(tensorpool_pub_key_path):
-        print(f"Public key file not found: {tensorpool_pub_key_path}")
-        return False, None
-    if not os.path.exists(tensorpool_priv_key_path):
-        print(f"Private key file not found: {tensorpool_priv_key_path}")
-        return False, None
-
     try:
         with open(tp_config_path, "r") as f:
             tp_config = f.read()
     except Exception as e:
         print(f"Failed to read {tp_config_path}: {str(e)}")
-        return False, None
-
-    try:
-        with open(tensorpool_pub_key_path, "r") as f:
-            public_key_contents = f.read().strip()
-    except Exception as e:
-        print(f"Failed to read {tensorpool_pub_key_path}: {str(e)}")
         return False, None
 
     api_key = get_tensorpool_key()
@@ -590,10 +561,7 @@ def job_push(
     return asyncio.run(
         _job_push_async(
             tp_config,
-            public_key_contents,
             api_key,
-            tensorpool_pub_key_path,
-            tensorpool_priv_key_path,
         )
     )
 
@@ -802,12 +770,13 @@ def download_files(download_map: Dict[str, str], overwrite: bool = False) -> boo
     return True
 
 
-def job_cancel(job_id: str, no_input: bool = False) -> Tuple[bool, str]:
+def job_cancel(job_id: str, no_input: bool = False, wait: bool = False) -> Tuple[bool, str]:
     """
     Cancel a job
     Args:
         job_id: The ID of the job to cancel
         no_input: Whether to skip interactive confirmation prompts
+        wait: Whether to wait for the job to fully terminate before returning
     Returns:
         A tuple containing a boolean indicating success and a message
     """
@@ -824,7 +793,7 @@ def job_cancel(job_id: str, no_input: bool = False) -> Tuple[bool, str]:
             _ws_operation_async(
                 endpoint=endpoint,
                 spinner=spinner,
-                payload=None,
+                payload={"wait": wait},
                 handle_user_input=not no_input,
                 success_message=f"Job {job_id} cancelled successfully",
                 error_message="Job cancellation failed",
@@ -889,7 +858,7 @@ async def _ws_operation_async(
     Unified async helper for WebSocket operations (clusters, NFS, etc.)
 
     Args:
-        endpoint: WebSocket endpoint path (e.g., "/cluster/create", "/nfs/create")
+        endpoint: WebSocket endpoint path (e.g., "/cluster/create", "/storage/create")
         spinner: Optional Spinner instance for UI feedback. If None, messages print directly.
         payload: Optional payload to send after API key authentication
         handle_user_input: Whether to handle interactive user input requests
@@ -968,6 +937,12 @@ async def _ws_operation_async(
         if e.code == 1000:
             # Normal closure
             pass
+        elif e.code == 1006:
+            # Abnormal closure - connection lost but operation may still be happening
+            return (
+                False,
+                f"Connection lost. The operation may still be in progress.\n{unexpected_end_message}",
+            )
         else:
             return (
                 False,
@@ -1003,6 +978,7 @@ def cluster_create(
     num_nodes: Optional[int],
     deletion_protection: bool = False,
     no_input: bool = False,
+    wait: bool = False,
 ) -> Tuple[bool, str]:
     """
     Create a new cluster (cluster command)
@@ -1013,6 +989,7 @@ def cluster_create(
         num_nodes: Number of nodes (must be >= 1)
         deletion_protection: Enable deletion protection for the cluster
         no_input: Whether to skip interactive input prompts
+        wait: Whether to wait for the cluster to be fully provisioned before returning
     Returns:
         A tuple containing a boolean indicating success and a message
     """
@@ -1047,8 +1024,13 @@ def cluster_create(
 
     # Build endpoint
     endpoint = "/cluster/create"
+    params = []
     if no_input:
-        endpoint += "?no_input=true"
+        params.append("no_input=true")
+    if wait:
+        params.append("wait=true")
+    if params:
+        endpoint += "?" + "&".join(params)
 
     # Run the async function with a spinner
     with Spinner("Creating cluster...") as spinner:
@@ -1070,19 +1052,25 @@ def cluster_create(
     return success, message
 
 
-def cluster_destroy(cluster_id: str, no_input: bool = False) -> Tuple[bool, str]:
+def cluster_destroy(cluster_id: str, no_input: bool = False, wait: bool = False) -> Tuple[bool, str]:
     """
     Destroy a cluster (cluster command)
     Args:
         cluster_id: The ID of the cluster to destroy
         no_input: Whether to skip interactive confirmation prompts
+        wait: Whether to wait for the cluster to be fully destroyed before returning
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     # Build endpoint
     endpoint = f"/cluster/destroy/{cluster_id}"
+    params = []
     if no_input:
-        endpoint += "?no_input=true"
+        params.append("no_input=true")
+    if wait:
+        params.append("wait=true")
+    if params:
+        endpoint += "?" + "&".join(params)
 
     # Run the async function with a spinner
     with Spinner("Destroying cluster...") as spinner:
@@ -1238,7 +1226,7 @@ def ssh_command(
 
     try:
         response = requests.get(
-            f"{ENGINE}/ssh/connect/{instance_id}",
+            f"{ENGINE}/ssh/{instance_id}",
             headers=headers,
             params={"system": platform.system()},
             timeout=30,
@@ -1296,7 +1284,7 @@ def fetch_user_info() -> Tuple[bool, str]:
 
     try:
         response = requests.get(
-            f"{ENGINE}/me",
+            f"{ENGINE}/user/info",
             headers=headers,
             timeout=30,
         )
@@ -1319,18 +1307,18 @@ def fetch_user_info() -> Tuple[bool, str]:
     return True, message
 
 
-def nfs_create(
+def storage_create(
     name: Optional[str],
     size: int,
     deletion_protection: bool = False,
     no_input: bool = False,
 ) -> Tuple[bool, str]:
     """
-    Create a new NFS volume
+    Create a new storage volume
     Args:
-        name: Optional name for the NFS volume
-        size: Size of the NFS volume in GB
-        deletion_protection: Enable deletion protection for the NFS volume
+        name: Optional name for the storage volume
+        size: Size of the storage volume in GB
+        deletion_protection: Enable deletion protection for the storage volume
         no_input: Whether to skip interactive input prompts
     Returns:
         A tuple containing a boolean indicating success and a message
@@ -1341,23 +1329,23 @@ def nfs_create(
         payload["name"] = name
 
     # Build endpoint
-    endpoint = "/nfs/create"
+    endpoint = "/storage/create"
     if no_input:
         endpoint += "?no_input=true"
 
     # Run the async function with a spinner
-    with Spinner("Creating NFS volume...") as spinner:
+    with Spinner("Creating storage volume...") as spinner:
         success, message = asyncio.run(
             _ws_operation_async(
                 endpoint=endpoint,
                 spinner=spinner,
                 payload=payload,
                 handle_user_input=not no_input,
-                success_message="NFS volume created successfully",
-                error_message="NFS volume creation failed",
+                success_message="Storage volume created successfully",
+                error_message="Storage volume creation failed",
                 unexpected_end_message=(
-                    "Connection ended unexpectedly during NFS volume creation.\n"
-                    "The volume may still be provisioning. Check 'tp nfs list' to see the current status."
+                    "Connection ended unexpectedly during storage volume creation.\n"
+                    "The volume may still be provisioning. Check 'tp storage list' to see the current status."
                 ),
             )
         )
@@ -1365,11 +1353,11 @@ def nfs_create(
     return success, message
 
 
-def nfs_destroy(storage_id: str, no_input: bool = False) -> Tuple[bool, str]:
+def storage_destroy(storage_id: str, no_input: bool = False) -> Tuple[bool, str]:
     """
-    Destroy an NFS volume
+    Destroy a storage volume
     Args:
-        storage_id: The ID of the NFS volume to destroy
+        storage_id: The ID of the storage volume to destroy
         no_input: Whether to skip interactive confirmation prompts
     Returns:
         A tuple containing a boolean indicating success and a message
@@ -1378,23 +1366,23 @@ def nfs_destroy(storage_id: str, no_input: bool = False) -> Tuple[bool, str]:
         return False, "Storage ID is required"
 
     # Build endpoint
-    endpoint = f"/nfs/destroy/{storage_id}"
+    endpoint = f"/storage/destroy/{storage_id}"
     if no_input:
         endpoint += "?no_input=true"
 
     # Run the async function with a spinner
-    with Spinner("Destroying NFS volume...") as spinner:
+    with Spinner("Destroying storage volume...") as spinner:
         success, message = asyncio.run(
             _ws_operation_async(
                 endpoint=endpoint,
                 spinner=spinner,
                 payload=None,
                 handle_user_input=not no_input,
-                success_message=f"NFS volume {storage_id} destroyed successfully",
-                error_message="NFS volume destruction failed",
+                success_message=f"Storage volume {storage_id} destroyed successfully",
+                error_message="Storage volume destruction failed",
                 unexpected_end_message=(
-                    "Connection ended unexpectedly during NFS volume destruction.\n"
-                    "The volume may still be destroying. Check 'tp nfs list' to see the current status."
+                    "Connection ended unexpectedly during storage volume destruction.\n"
+                    "The volume may still be destroying. Check 'tp storage list' to see the current status."
                 ),
             )
         )
@@ -1402,13 +1390,13 @@ def nfs_destroy(storage_id: str, no_input: bool = False) -> Tuple[bool, str]:
     return success, message
 
 
-def nfs_attach(
+def storage_attach(
     storage_id: str, cluster_ids: List[str], no_input: bool = False
 ) -> Tuple[bool, str]:
     """
-    Attach an NFS volume to one or more clusters
+    Attach a storage volume to one or more clusters
     Args:
-        storage_id: The ID of the NFS volume
+        storage_id: The ID of the storage volume
         cluster_ids: List of cluster IDs to attach the volume to
         no_input: Whether to skip interactive input prompts
     Returns:
@@ -1424,23 +1412,23 @@ def nfs_attach(
     payload = {"storage_id": storage_id, "cluster_ids": cluster_ids}
 
     # Build endpoint
-    endpoint = "/nfs/attach"
+    endpoint = "/storage/attach"
     if no_input:
         endpoint += "?no_input=true"
 
     # Run the async function with a spinner
-    with Spinner("Attaching NFS volume...") as spinner:
+    with Spinner("Attaching storage volume...") as spinner:
         success, message = asyncio.run(
             _ws_operation_async(
                 endpoint=endpoint,
                 spinner=spinner,
                 payload=payload,
                 handle_user_input=not no_input,
-                success_message="NFS volume attached successfully",
-                error_message="NFS volume attachment failed",
+                success_message="Storage volume attached successfully",
+                error_message="Storage volume attachment failed",
                 unexpected_end_message=(
-                    "Connection ended unexpectedly during NFS volume attachment.\n"
-                    "The attachment may still be in progress. Check 'tp nfs list' to see the current status."
+                    "Connection ended unexpectedly during storage volume attachment.\n"
+                    "The attachment may still be in progress. Check 'tp storage list' to see the current status."
                 ),
             )
         )
@@ -1448,13 +1436,13 @@ def nfs_attach(
     return success, message
 
 
-def nfs_detach(
+def storage_detach(
     storage_id: str, cluster_ids: List[str], no_input: bool = False
 ) -> Tuple[bool, str]:
     """
-    Detach an NFS volume from one or more clusters
+    Detach a storage volume from one or more clusters
     Args:
-        storage_id: The ID of the NFS volume
+        storage_id: The ID of the storage volume
         cluster_ids: List of cluster IDs to detach the volume from
         no_input: Whether to skip interactive input prompts
     Returns:
@@ -1470,23 +1458,23 @@ def nfs_detach(
     payload = {"storage_id": storage_id, "cluster_ids": cluster_ids}
 
     # Build endpoint
-    endpoint = "/nfs/detach"
+    endpoint = "/storage/detach"
     if no_input:
         endpoint += "?no_input=true"
 
     # Run the async function with a spinner
-    with Spinner("Detaching NFS volume...") as spinner:
+    with Spinner("Detaching storage volume...") as spinner:
         success, message = asyncio.run(
             _ws_operation_async(
                 endpoint=endpoint,
                 spinner=spinner,
                 payload=payload,
                 handle_user_input=not no_input,
-                success_message="NFS volume detached successfully",
-                error_message="NFS volume detachment failed",
+                success_message="Storage volume detached successfully",
+                error_message="Storage volume detachment failed",
                 unexpected_end_message=(
-                    "Connection ended unexpectedly during NFS volume detachment.\n"
-                    "The detachment may still be in progress. Check 'tp nfs list' to see the current status."
+                    "Connection ended unexpectedly during storage volume detachment.\n"
+                    "The detachment may still be in progress. Check 'tp storage list' to see the current status."
                 ),
             )
         )
@@ -1494,9 +1482,9 @@ def nfs_detach(
     return success, message
 
 
-def nfs_list(org: bool = False) -> Tuple[bool, str]:
+def storage_list(org: bool = False) -> Tuple[bool, str]:
     """
-    List NFS volumes - either user's volumes or all org volumes
+    List storage volumes - either user's volumes or all org volumes
     Args:
         org: If True, list all volumes in the user's organization
     Returns:
@@ -1509,13 +1497,13 @@ def nfs_list(org: bool = False) -> Tuple[bool, str]:
 
     try:
         response = requests.get(
-            f"{ENGINE}/nfs/list",
+            f"{ENGINE}/storage/list",
             params=params,
             headers=headers,
             timeout=30,
         )
     except requests.exceptions.RequestException as e:
-        return False, f"Failed to list NFS volumes: {str(e)}"
+        return False, f"Failed to list storage volumes: {str(e)}"
 
     try:
         result = response.json()
@@ -1524,7 +1512,7 @@ def nfs_list(org: bool = False) -> Tuple[bool, str]:
 
     if response.status_code != 200:
         message = result.get(
-            "message", f"Error listing NFS volumes. Status code: {response.status_code}"
+            "message", f"Error listing storage volumes. Status code: {response.status_code}"
         )
         return False, message
 
@@ -1532,11 +1520,11 @@ def nfs_list(org: bool = False) -> Tuple[bool, str]:
     return True, message
 
 
-def nfs_info(storage_id: str) -> Tuple[bool, str]:
+def storage_info(storage_id: str) -> Tuple[bool, str]:
     """
-    Get detailed information about a specific NFS volume
+    Get detailed information about a specific storage volume
     Args:
-        storage_id: The ID of the NFS volume to get information about
+        storage_id: The ID of the storage volume to get information about
     Returns:
         A tuple containing a boolean indicating success and a message
     """
@@ -1547,12 +1535,12 @@ def nfs_info(storage_id: str) -> Tuple[bool, str]:
 
     try:
         response = requests.get(
-            f"{ENGINE}/nfs/info/{storage_id}",
+            f"{ENGINE}/storage/info/{storage_id}",
             headers=headers,
             timeout=30,
         )
     except requests.exceptions.RequestException as e:
-        return False, f"Failed to get NFS volume info: {str(e)}"
+        return False, f"Failed to get storage volume info: {str(e)}"
 
     try:
         result = response.json()
@@ -1565,7 +1553,7 @@ def nfs_info(storage_id: str) -> Tuple[bool, str]:
     if response.status_code != 200:
         error_msg = result.get(
             "message",
-            f"Error getting NFS volume info. Status code {response.status_code}",
+            f"Error getting storage volume info. Status code {response.status_code}",
         )
         return False, error_msg
 
@@ -1596,7 +1584,7 @@ def cluster_edit(
     payload = {}
 
     if name is not None:
-        payload["tp_cluster_name"] = name
+        payload["cluster_name"] = name
     if deletion_protection is not None:
         payload["deletion_protection"] = deletion_protection
 
@@ -1618,7 +1606,7 @@ def cluster_edit(
             f"Failed to decode server response. Status code: {response.status_code}",
         )
 
-    if response.status_code != 200:
+    if response.status_code != 202:
         error_msg = result.get(
             "message", f"Error editing cluster. Status code: {response.status_code}"
         )
@@ -1628,19 +1616,19 @@ def cluster_edit(
     return True, message
 
 
-def nfs_edit(
+def storage_edit(
     storage_id: str,
     name: Optional[str] = None,
     deletion_protection: Optional[bool] = None,
     size: Optional[int] = None,
 ) -> Tuple[bool, str]:
     """
-    Edit NFS volume properties
+    Edit storage volume properties
     Args:
-        storage_id: The ID of the NFS volume to edit
-        name: Optional new name for the NFS volume
+        storage_id: The ID of the storage volume to edit
+        name: Optional new name for the storage volume
         deletion_protection: Optional new deletion protection setting
-        size: Optional new size for the NFS volume in GB (can only be increased)
+        size: Optional new size for the storage volume in GB (can only be increased)
     Returns:
         A tuple containing a boolean indicating success and a message
     """
@@ -1663,13 +1651,13 @@ def nfs_edit(
 
     try:
         response = requests.patch(
-            f"{ENGINE}/nfs/edit/{storage_id}",
+            f"{ENGINE}/storage/edit/{storage_id}",
             json=payload,
             headers=headers,
             timeout=30,
         )
     except requests.exceptions.RequestException as e:
-        return False, f"Failed to edit NFS volume: {str(e)}"
+        return False, f"Failed to edit storage volume: {str(e)}"
 
     try:
         result = response.json()
@@ -1681,11 +1669,11 @@ def nfs_edit(
 
     if response.status_code != 200:
         error_msg = result.get(
-            "message", f"Error editing NFS volume. Status code: {response.status_code}"
+            "message", f"Error editing storage volume. Status code: {response.status_code}"
         )
         return False, error_msg
 
-    message = result.get("message", "NFS volume edited successfully")
+    message = result.get("message", "Storage volume edited successfully")
     return True, message
 
 
@@ -1730,7 +1718,7 @@ def ssh_key_create(key_path: str, name: Optional[str] = None) -> Tuple[bool, str
 
     try:
         response = requests.post(
-            f"{ENGINE}/ssh/key/create",
+            f"{ENGINE}/user/ssh-key/add",
             json=payload,
             headers=headers,
             timeout=30,
@@ -1771,7 +1759,7 @@ def ssh_key_list(org: bool = False) -> Tuple[bool, str]:
 
     try:
         response = requests.get(
-            f"{ENGINE}/ssh/key/list",
+            f"{ENGINE}/user/ssh-key/list",
             headers=headers,
             params=params,
             timeout=30,
@@ -1814,7 +1802,7 @@ def ssh_key_destroy(key_id: str) -> Tuple[bool, str]:
 
     try:
         response = requests.delete(
-            f"{ENGINE}/ssh/key/destroy/{key_id}",
+            f"{ENGINE}/user/ssh-key/remove/{key_id}",
             headers=headers,
             timeout=30,
         )

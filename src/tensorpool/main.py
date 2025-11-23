@@ -24,13 +24,13 @@ from tensorpool.helpers import (
     ssh_key_list,
     ssh_key_destroy,
     fetch_user_info,
-    nfs_create,
-    nfs_destroy,
-    nfs_attach,
-    nfs_detach,
-    nfs_list,
-    nfs_info,
-    nfs_edit,
+    storage_create,
+    storage_destroy,
+    storage_attach,
+    storage_detach,
+    storage_list,
+    storage_info,
+    storage_edit,
     safe_input,
     safe_confirm,
     ENGINE,
@@ -101,7 +101,7 @@ def main():
         "create", help="Create a new cluster"
     )
     cluster_create_parser.add_argument(
-        "-i",  # uh this is kinda weird but -i is standard for ssh,
+        "-i",  # uh this is kinda weird but -i is standard for ssh private key / identity file,
         "--public-key",
         help="Path to your public SSH key (e.g. ~/.ssh/id_rsa.pub)",
         required=False,
@@ -129,6 +129,11 @@ def main():
         action="store_true",
         help="Skip confirmation prompts and create cluster immediately",
     )
+    cluster_create_parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for the cluster to be fully provisioned before returning",
+    )
     cluster_destroy_parser = cluster_subparsers.add_parser(
         "destroy", aliases=["rm"], help="Destroy a cluster"
     )
@@ -137,6 +142,11 @@ def main():
         "--no-input",
         action="store_true",
         help="Skip confirmation prompt and destroy cluster immediately",
+    )
+    cluster_destroy_parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for the cluster to be fully destroyed before returning",
     )
     list_parser = cluster_subparsers.add_parser(
         "list", aliases=["ls"], help="List available clusters"
@@ -171,106 +181,107 @@ def main():
     # off_parser = cluster_subparsers.add_parser("off", help="Deactivate a cluster")
     # off_parser.add_argument("cluster_id", help="ID of the instance/cluster to turn off")
 
-    nfs_parser = subparsers.add_parser(
-        "nfs",
-        help="Manage NFS volumes",
+    storage_parser = subparsers.add_parser(
+        "storage",
+        aliases=["nfs"],
+        help="Manage storage volumes",
     )
 
-    nfs_subparsers = nfs_parser.add_subparsers(dest="nfs_command")
+    storage_subparsers = storage_parser.add_subparsers(dest="storage_command")
 
-    nfs_create_parser = nfs_subparsers.add_parser(
-        "create", help="Create a new NFS volume"
+    storage_create_parser = storage_subparsers.add_parser(
+        "create", help="Create a new storage volume"
     )
-    nfs_create_parser.add_argument(
+    storage_create_parser.add_argument(
         "-s",
         "--size",
         type=int,
         required=True,
-        help="Size of the NFS volume in GB",
+        help="Size of the storage volume in GB",
     )
-    nfs_create_parser.add_argument("--name", help="NFS volume name (optional)")
-    nfs_create_parser.add_argument(
+    storage_create_parser.add_argument("--name", help="Storage volume name (optional)")
+    storage_create_parser.add_argument(
         "--deletion-protection",
         action="store_true",
-        help="Enable deletion protection for the NFS volume (optional)",
+        help="Enable deletion protection for the storage volume (optional)",
     )
-    nfs_create_parser.add_argument(
+    storage_create_parser.add_argument(
         "--no-input",
         action="store_true",
-        help="Skip confirmation prompts and create NFS volume immediately",
+        help="Skip confirmation prompts and create storage volume immediately",
     )
 
-    nfs_destroy_parser = nfs_subparsers.add_parser(
-        "destroy", aliases=["rm"], help="Destroy an NFS volume"
+    storage_destroy_parser = storage_subparsers.add_parser(
+        "destroy", aliases=["rm"], help="Destroy a storage volume"
     )
-    nfs_destroy_parser.add_argument("storage_id", help="Storage ID to destroy")
-    nfs_destroy_parser.add_argument(
+    storage_destroy_parser.add_argument("storage_id", help="Storage ID to destroy")
+    storage_destroy_parser.add_argument(
         "--no-input",
         action="store_true",
-        help="Skip confirmation prompts and destroy NFS volume immediately",
+        help="Skip confirmation prompts and destroy storage volume immediately",
     )
 
-    nfs_list_parser = nfs_subparsers.add_parser(
+    storage_list_parser = storage_subparsers.add_parser(
         "list",
         aliases=["ls"],
-        help="List all NFS volumes",
+        help="List all storage volumes",
     )
-    nfs_list_parser.add_argument(
+    storage_list_parser.add_argument(
         "--org",
         "--organization",
         action="store_true",
-        help="List all NFS volumes in organization",
+        help="List all storage volumes in organization",
         dest="org",
     )
 
-    nfs_info_parser = nfs_subparsers.add_parser(
-        "info", help="Get detailed information about an NFS volume"
+    storage_info_parser = storage_subparsers.add_parser(
+        "info", help="Get detailed information about a storage volume"
     )
-    nfs_info_parser.add_argument(
+    storage_info_parser.add_argument(
         "storage_id", help="Storage ID to get information about"
     )
 
-    nfs_edit_parser = nfs_subparsers.add_parser(
-        "edit", help="Edit NFS volume properties"
+    storage_edit_parser = storage_subparsers.add_parser(
+        "edit", help="Edit storage volume properties"
     )
-    nfs_edit_parser.add_argument("storage_id", help="Storage ID to edit")
-    nfs_edit_parser.add_argument("--name", help="New name for the NFS volume")
-    nfs_edit_parser.add_argument(
+    storage_edit_parser.add_argument("storage_id", help="Storage ID to edit")
+    storage_edit_parser.add_argument("--name", help="New name for the storage volume")
+    storage_edit_parser.add_argument(
         "--deletion-protection",
         type=lambda x: x.lower() in ("true", "1", "yes"),
         help="Enable/disable deletion protection (true/false)",
     )
-    nfs_edit_parser.add_argument(
+    storage_edit_parser.add_argument(
         "-s",
         "--size",
         type=int,
-        help="New size for the NFS volume in GB (size can only be increased)",
+        help="New size for the storage volume in GB (size can only be increased)",
     )
 
-    nfs_attach_parser = nfs_subparsers.add_parser(
-        "attach", help="Attach an NFS volume to clusters"
+    storage_attach_parser = storage_subparsers.add_parser(
+        "attach", help="Attach a storage volume to clusters"
     )
-    nfs_attach_parser.add_argument("storage_id", help="Storage ID to attach")
-    nfs_attach_parser.add_argument(
-        "cluster_ids", nargs="+", help="Cluster IDs to attach the NFS volume to"
+    storage_attach_parser.add_argument("storage_id", help="Storage ID to attach")
+    storage_attach_parser.add_argument(
+        "cluster_ids", nargs="+", help="Cluster IDs to attach the storage volume to"
     )
-    nfs_attach_parser.add_argument(
+    storage_attach_parser.add_argument(
         "--no-input",
         action="store_true",
-        help="Skip confirmation prompts and attach NFS volume immediately",
+        help="Skip confirmation prompts and attach storage volume immediately",
     )
 
-    nfs_detach_parser = nfs_subparsers.add_parser(
-        "detach", help="Detach an NFS volume from clusters"
+    storage_detach_parser = storage_subparsers.add_parser(
+        "detach", help="Detach a storage volume from clusters"
     )
-    nfs_detach_parser.add_argument("storage_id", help="Storage ID to detach")
-    nfs_detach_parser.add_argument(
+    storage_detach_parser.add_argument("storage_id", help="Storage ID to detach")
+    storage_detach_parser.add_argument(
         "cluster_ids", nargs="+", help="Cluster IDs to detach the volume from"
     )
-    nfs_detach_parser.add_argument(
+    storage_detach_parser.add_argument(
         "--no-input",
         action="store_true",
-        help="Skip confirmation prompts and detach NFS volume immediately",
+        help="Skip confirmation prompts and detach storage volume immediately",
     )
 
     # Create job subparser for job-related commands
@@ -308,6 +319,11 @@ def main():
 
     cancel_parser = job_subparsers.add_parser("cancel", help="Cancel a job")
     cancel_parser.add_argument("job_id", help="Job ID to cancel")
+    cancel_parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for the job to cancel before returning",
+    )
 
     listen_parser = job_subparsers.add_parser("listen", help="Listen to a job")
     listen_parser.add_argument("job_id", help="ID of the job to listen to")
@@ -346,35 +362,32 @@ def main():
     # )
 
     ssh_parser = subparsers.add_parser(
-        "ssh", help="SSH into an instance or manage SSH keys"
+        "ssh", help="SSH into an instance"
     )
-    ssh_subparsers = ssh_parser.add_subparsers(dest="ssh_command")
-
-    # Connect subcommand (explicit)
-    ssh_connect_parser = ssh_subparsers.add_parser(
-        "connect", help="SSH into an instance"
-    )
-    ssh_connect_parser.add_argument("instance_id", help="Instance ID to SSH into")
-    ssh_connect_parser.add_argument(
+    ssh_parser.add_argument("instance_id", help="Instance ID to SSH into")
+    ssh_parser.add_argument(
         "ssh_args",
         nargs=argparse.REMAINDER,
         help="Additional SSH arguments to pass through (e.g. -i, -o, -v)",
     )
 
+    me_parser = subparsers.add_parser("me", help="Display user information and manage SSH keys")
+    me_subparsers = me_parser.add_subparsers(dest="me_command")
+
     # Key management subcommand
-    ssh_key_parser = ssh_subparsers.add_parser("key", help="Manage SSH keys")
-    ssh_key_subparsers = ssh_key_parser.add_subparsers(dest="key_command")
+    me_key_parser = me_subparsers.add_parser("sshkey", help="Manage SSH keys")
+    me_key_subparsers = me_key_parser.add_subparsers(dest="sshkey_command")
 
-    ssh_key_create_parser = ssh_key_subparsers.add_parser(
-        "create", help="Create an SSH public key"
+    me_key_create_parser = me_key_subparsers.add_parser(
+        "add", help="Add an SSH public key"
     )
-    ssh_key_create_parser.add_argument("key_path", help="Path to SSH public key file")
-    ssh_key_create_parser.add_argument("--name", help="Optional name for the SSH key")
+    me_key_create_parser.add_argument("key_path", help="Path to SSH public key file")
+    me_key_create_parser.add_argument("--name", help="Optional name for the SSH key")
 
-    ssh_key_list_parser = ssh_key_subparsers.add_parser(
+    me_key_list_parser = me_key_subparsers.add_parser(
         "list", aliases=["ls"], help="List all SSH keys"
     )
-    ssh_key_list_parser.add_argument(
+    me_key_list_parser.add_argument(
         "--org",
         "--organization",
         action="store_true",
@@ -382,12 +395,15 @@ def main():
         dest="org",
     )
 
-    ssh_key_destroy_parser = ssh_key_subparsers.add_parser(
-        "destroy", aliases=["rm"], help="Remove an SSH key"
+    me_key_destroy_parser = me_key_subparsers.add_parser(
+        "remove", aliases=["rm"], help="Remove an SSH key"
     )
-    ssh_key_destroy_parser.add_argument("key_id", help="SSH key ID to remove")
+    me_key_destroy_parser.add_argument("key_id", help="SSH key ID to remove")
 
-    subparsers.add_parser("me", help="Display user information")
+    # Preferences subcommand
+    me_preferences_parser = me_subparsers.add_parser(
+        "preferences", help="Manage user preferences"
+    )
 
     parser.add_argument("-v", "--version", action="version", version=f"{get_version()}")
 
@@ -430,17 +446,7 @@ def main():
                 run_parser.print_help()
                 return
 
-            # Check SSH keys before running job
-            # TODO
-            # prechecks_success, pub_key_path, priv_key_path = ssh_key_prechecks()
-            # if not prechecks_success:
-            #     print("SSH key setup failed. Cannot proceed with job.")
-            #     exit(1)
-
-            pub_key_path = os.path.expanduser("~/.ssh/id_ed25519.pub")
-            priv_key_path = os.path.expanduser("~/.ssh/id_ed25519")
-
-            success, job_id = job_push(args.tp_config_path, pub_key_path, priv_key_path)
+            success, job_id = job_push(args.tp_config_path)
             if not success:
                 exit(1)
 
@@ -507,7 +513,7 @@ def main():
             print("Job files pulled successfully")
             return
         elif args.job_command == "cancel":
-            success, message = job_cancel(args.job_id, no_input=args.no_input)
+            success, message = job_cancel(args.job_id, no_input=args.no_input, wait=args.wait)
             if message:
                 print(message)
             if not success:
@@ -542,6 +548,7 @@ def main():
                 args.num_nodes,
                 args.deletion_protection,
                 no_input=args.no_input,
+                wait=args.wait,
             )
             if final_message:
                 print(final_message)
@@ -549,7 +556,7 @@ def main():
                 exit(1)
             return
         elif args.cluster_command in ["destroy", "rm"]:
-            success, message = cluster_destroy(args.cluster_id, no_input=args.no_input)
+            success, message = cluster_destroy(args.cluster_id, no_input=args.no_input, wait=args.wait)
             if message:
                 print(message)
             if not success:
@@ -586,55 +593,24 @@ def main():
             cluster_parser.print_help()
             return
     elif args.command == "ssh":
-        # Handle ssh key subcommands
-        if args.ssh_command == "key":
-            if args.key_command == "create":
-                success, message = ssh_key_create(args.key_path, name=args.name)
-                if message:
-                    print(message)
-                if not success:
-                    exit(1)
-                return
-            elif args.key_command in ["list", "ls"]:
-                success, message = ssh_key_list(org=args.org)
-                if message:
-                    print(message)
-                if not success:
-                    exit(1)
-                return
-            elif args.key_command in ["destroy", "rm"]:
-                success, message = ssh_key_destroy(args.key_id)
-                if message:
-                    print(message)
-                if not success:
-                    exit(1)
-                return
-            else:
-                ssh_key_parser.print_help()
-                return
-        # Handle ssh connect (explicit only)
-        elif args.ssh_command == "connect":
-            instance_id = args.instance_id
-            if not instance_id:
-                print("Error: instance_id is required")
-                ssh_parser.print_help()
-                exit(1)
-
-            ssh_args = (
-                args.ssh_args if hasattr(args, "ssh_args") and args.ssh_args else []
-            )
-            success, message = ssh_command(instance_id, ssh_args)
-            if message:
-                print(message)
-            if not success:
-                exit(1)
-            return
-        else:
+        instance_id = args.instance_id
+        if not instance_id:
+            print("Error: instance_id is required")
             ssh_parser.print_help()
-            return
-    elif args.command == "nfs":
-        if args.nfs_command == "create":
-            success, message = nfs_create(
+            exit(1)
+
+        ssh_args = (
+            args.ssh_args if hasattr(args, "ssh_args") and args.ssh_args else []
+        )
+        success, message = ssh_command(instance_id, ssh_args)
+        if message:
+            print(message)
+        if not success:
+            exit(1)
+        return
+    elif args.command in ["storage", "nfs"]:
+        if args.storage_command == "create":
+            success, message = storage_create(
                 args.name, args.size, args.deletion_protection, no_input=args.no_input
             )
             if message:
@@ -642,35 +618,35 @@ def main():
             if not success:
                 exit(1)
             return
-        elif args.nfs_command in ["destroy", "rm"]:
-            success, message = nfs_destroy(args.storage_id, no_input=args.no_input)
+        elif args.storage_command in ["destroy", "rm"]:
+            success, message = storage_destroy(args.storage_id, no_input=args.no_input)
             if message:
                 print(message)
             if not success:
                 exit(1)
             return
-        elif args.nfs_command in ["list", "ls"]:
-            with Spinner(text="Fetching NFS volumes..."):
-                success, message = nfs_list(org=args.org)
+        elif args.storage_command in ["list", "ls"]:
+            with Spinner(text="Fetching storage volumes..."):
+                success, message = storage_list(org=args.org)
             if message:
                 print(message)
             if not success:
                 exit(1)
             return
-        elif args.nfs_command == "info":
-            with Spinner(text="Fetching NFS volume info..."):
-                success, message = nfs_info(args.storage_id)
+        elif args.storage_command == "info":
+            with Spinner(text="Fetching storage volume info..."):
+                success, message = storage_info(args.storage_id)
             if message:
                 print(message)
             if not success:
                 exit(1)
             return
-        elif args.nfs_command == "edit":
+        elif args.storage_command == "edit":
             name = getattr(args, "name", None)
             deletion_protection = getattr(args, "deletion_protection", None)
             size = getattr(args, "size", None)
-            with Spinner(text="Editing NFS volume..."):
-                success, message = nfs_edit(
+            with Spinner(text="Editing storage volume..."):
+                success, message = storage_edit(
                     args.storage_id,
                     name=name,
                     deletion_protection=deletion_protection,
@@ -681,8 +657,8 @@ def main():
             if not success:
                 exit(1)
             return
-        elif args.nfs_command == "attach":
-            success, message = nfs_attach(
+        elif args.storage_command == "attach":
+            success, message = storage_attach(
                 args.storage_id, args.cluster_ids, no_input=args.no_input
             )
             if message:
@@ -690,8 +666,8 @@ def main():
             if not success:
                 exit(1)
             return
-        elif args.nfs_command == "detach":
-            success, message = nfs_detach(
+        elif args.storage_command == "detach":
+            success, message = storage_detach(
                 args.storage_id, args.cluster_ids, no_input=args.no_input
             )
             if message:
@@ -700,20 +676,52 @@ def main():
                 exit(1)
             return
         else:
-            nfs_parser.print_help()
+            storage_parser.print_help()
             return
     elif args.command == "me":
-        with Spinner(text="Fetching user information..."):
-            success, message = fetch_user_info()
-        print(message)
+        # Handle SSH key subcommands
+        if args.me_command == "sshkey":
+            if args.sshkey_command == "add":
+                success, message = ssh_key_create(args.key_path, name=args.name)
+                if message:
+                    print(message)
+                if not success:
+                    exit(1)
+                return
+            elif args.sshkey_command in ["list", "ls"]:
+                success, message = ssh_key_list(org=args.org)
+                if message:
+                    print(message)
+                if not success:
+                    exit(1)
+                return
+            elif args.sshkey_command in ["remove", "rm"]:
+                success, message = ssh_key_destroy(args.key_id)
+                if message:
+                    print(message)
+                if not success:
+                    exit(1)
+                return
+            else:
+                me_key_parser.print_help()
+                return
+        # Handle preferences subcommand
+        elif args.me_command == "preferences":
+            print("To manage your preferences, visit: https://tensorpool.dev/dashboard/profile")
+            return
+        # Handle default 'tp me' (display user info)
+        else:
+            with Spinner(text="Fetching user information..."):
+                success, message = fetch_user_info()
+            print(message)
 
-        # Display engine URL if it's been overridden
-        if os.environ.get("TENSORPOOL_ENGINE"):
-            print(f"\nTENSORPOOL_ENGINE={ENGINE}")
+            # Display engine URL if it's been overridden
+            if os.environ.get("TENSORPOOL_ENGINE"):
+                print(f"\nTENSORPOOL_ENGINE={ENGINE}")
 
-        if not success:
-            exit(1)
-        return
+            if not success:
+                exit(1)
+            return
 
     parser.print_help()
     return
