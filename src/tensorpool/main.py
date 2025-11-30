@@ -175,15 +175,30 @@ def main():
         help="Enable/disable deletion protection (true/false)",
     )
 
-    # on_parser = cluster_subparsers.add_parser("on", help="Activate a cluster")
-    # on_parser.add_argument("cluster_id", help="ID of the instance/cluster to turn on")
+    cluster_attach_parser = cluster_subparsers.add_parser(
+        "attach", help="Attach a storage volume to this cluster"
+    )
+    cluster_attach_parser.add_argument("cluster_id", help="Cluster ID to attach storage to")
+    cluster_attach_parser.add_argument("storage_id", help="Storage ID to attach")
+    cluster_attach_parser.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
 
-    # off_parser = cluster_subparsers.add_parser("off", help="Deactivate a cluster")
-    # off_parser.add_argument("cluster_id", help="ID of the instance/cluster to turn off")
+    cluster_detach_parser = cluster_subparsers.add_parser(
+        "detach", help="Detach a storage volume from this cluster"
+    )
+    cluster_detach_parser.add_argument("cluster_id", help="Cluster ID to detach storage from")
+    cluster_detach_parser.add_argument("storage_id", help="Storage ID to detach")
+    cluster_detach_parser.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
 
     storage_parser = subparsers.add_parser(
         "storage",
-        aliases=["nfs"],
         help="Manage storage volumes",
     )
 
@@ -193,11 +208,17 @@ def main():
         "create", help="Create a new storage volume"
     )
     storage_create_parser.add_argument(
+        "-t",
+        "--type",
+        required=True,
+        help="Storage volume type ('fast' or 'flex')",
+    )
+    storage_create_parser.add_argument(
         "-s",
         "--size",
         type=int,
-        required=True,
-        help="Size of the storage volume in GB",
+        required=False,
+        help="Size of the storage volume in GB. Required for 'fast' volume types.",
     )
     storage_create_parser.add_argument("--name", help="Storage volume name (optional)")
     storage_create_parser.add_argument(
@@ -256,32 +277,6 @@ def main():
         "--size",
         type=int,
         help="New size for the storage volume in GB (size can only be increased)",
-    )
-
-    storage_attach_parser = storage_subparsers.add_parser(
-        "attach", help="Attach a storage volume to clusters"
-    )
-    storage_attach_parser.add_argument("storage_id", help="Storage ID to attach")
-    storage_attach_parser.add_argument(
-        "cluster_ids", nargs="+", help="Cluster IDs to attach the storage volume to"
-    )
-    storage_attach_parser.add_argument(
-        "--no-input",
-        action="store_true",
-        help="Skip confirmation prompts and attach storage volume immediately",
-    )
-
-    storage_detach_parser = storage_subparsers.add_parser(
-        "detach", help="Detach a storage volume from clusters"
-    )
-    storage_detach_parser.add_argument("storage_id", help="Storage ID to detach")
-    storage_detach_parser.add_argument(
-        "cluster_ids", nargs="+", help="Cluster IDs to detach the volume from"
-    )
-    storage_detach_parser.add_argument(
-        "--no-input",
-        action="store_true",
-        help="Skip confirmation prompts and detach storage volume immediately",
     )
 
     # Create job subparser for job-related commands
@@ -589,6 +584,24 @@ def main():
             if not success:
                 exit(1)
             return
+        elif args.cluster_command == "attach":
+            success, message = storage_attach(
+                args.storage_id, [args.cluster_id], no_input=args.no_input
+            )
+            if message:
+                print(message)
+            if not success:
+                exit(1)
+            return
+        elif args.cluster_command == "detach":
+            success, message = storage_detach(
+                args.storage_id, [args.cluster_id], no_input=args.no_input
+            )
+            if message:
+                print(message)
+            if not success:
+                exit(1)
+            return
         else:
             cluster_parser.print_help()
             return
@@ -611,7 +624,7 @@ def main():
     elif args.command in ["storage", "nfs"]:
         if args.storage_command == "create":
             success, message = storage_create(
-                args.name, args.size, args.deletion_protection, no_input=args.no_input
+                args.name, args.size, args.type, args.deletion_protection, no_input=args.no_input
             )
             if message:
                 print(message)
@@ -652,24 +665,6 @@ def main():
                     deletion_protection=deletion_protection,
                     size=size,
                 )
-            if message:
-                print(message)
-            if not success:
-                exit(1)
-            return
-        elif args.storage_command == "attach":
-            success, message = storage_attach(
-                args.storage_id, args.cluster_ids, no_input=args.no_input
-            )
-            if message:
-                print(message)
-            if not success:
-                exit(1)
-            return
-        elif args.storage_command == "detach":
-            success, message = storage_detach(
-                args.storage_id, args.cluster_ids, no_input=args.no_input
-            )
             if message:
                 print(message)
             if not success:

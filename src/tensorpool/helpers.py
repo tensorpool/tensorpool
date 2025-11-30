@@ -1309,7 +1309,8 @@ def fetch_user_info() -> Tuple[bool, str]:
 
 def storage_create(
     name: Optional[str],
-    size: int,
+    size: Optional[int],
+    storage_type: str,
     deletion_protection: bool = False,
     no_input: bool = False,
 ) -> Tuple[bool, str]:
@@ -1318,13 +1319,16 @@ def storage_create(
     Args:
         name: Optional name for the storage volume
         size: Size of the storage volume in GB
+        storage_type: Type of storage volume
         deletion_protection: Enable deletion protection for the storage volume
         no_input: Whether to skip interactive input prompts
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     # Build payload
-    payload = {"size": size, "deletion_protection": deletion_protection}
+    payload: dict = {"storage_type": storage_type, "deletion_protection": deletion_protection}
+    if size is not None:
+        payload["size"] = size
     if name:
         payload["name"] = name
 
