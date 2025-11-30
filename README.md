@@ -33,7 +33,7 @@ usage: tp [-h] [--no-input] [-v] {cluster,storage,nfs,job,ssh,me} ...
 TensorPool https://tensorpool.dev
 
 positional arguments:
-  {cluster,storage,nfs,job,ssh,me}
+  {cluster,storage,job,ssh,me}
     cluster             Manage clusters
     storage             Manage storage volumes
     job                 Manage jobs on TensorPool
