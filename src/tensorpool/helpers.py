@@ -1681,6 +1681,46 @@ def storage_edit(
     return True, message
 
 
+def job_delete(job_id: str) -> Tuple[bool, str]:
+    """
+    Delete a terminal job (hides it from API endpoints)
+    Args:
+        job_id: The ID of the job to delete
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    if not job_id:
+        return False, "Job ID is required"
+
+    headers = _get_headers()
+
+    try:
+        response = requests.delete(
+            f"{ENGINE}/job/delete/{job_id}",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to delete job: {str(e)}"
+
+    try:
+        result = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return (
+            False,
+            f"Failed to decode server response. Status code: {response.status_code}",
+        )
+
+    if response.status_code != 200:
+        error_msg = result.get(
+            "message", f"Error deleting job. Status code: {response.status_code}"
+        )
+        return False, error_msg
+
+    message = result.get("message", "Job deleted successfully")
+    return True, message
+
+
 def ssh_key_create(key_path: str, name: Optional[str] = None) -> Tuple[bool, str]:
     """
     Create an SSH public key in TensorPool

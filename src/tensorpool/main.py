@@ -9,6 +9,7 @@ from tensorpool.helpers import (
     job_cancel,
     job_list,
     job_info,
+    job_delete,
     job_listen,
     job_pull,
     get_empty_tp_config,
@@ -320,6 +321,9 @@ def main():
         help="Wait for the job to cancel before returning",
     )
 
+    delete_parser = job_subparsers.add_parser("delete", help="Delete a terminal job")
+    delete_parser.add_argument("job_id", help="Job ID to delete")
+
     listen_parser = job_subparsers.add_parser("listen", help="Listen to a job")
     listen_parser.add_argument("job_id", help="ID of the job to listen to")
 
@@ -509,6 +513,14 @@ def main():
             return
         elif args.job_command == "cancel":
             success, message = job_cancel(args.job_id, no_input=args.no_input, wait=args.wait)
+            if message:
+                print(message)
+            if not success:
+                exit(1)
+            return
+        elif args.job_command == "delete":
+            with Spinner(text="Deleting job..."):
+                success, message = job_delete(args.job_id)
             if message:
                 print(message)
             if not success:
