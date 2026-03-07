@@ -41,7 +41,7 @@ from tensorpool.spinner import Spinner
 
 def gen_tp_config(no_input: bool = False) -> None:
     """
-    Command to generate a tp.[config].toml file
+    Command to generate a {job_name}.tp.toml file
     """
     with Spinner(text="Fetching empty config..."):
         success, empty_config, message = get_empty_tp_config()
@@ -54,18 +54,18 @@ def gen_tp_config(no_input: bool = False) -> None:
         print(message)
 
     # Find a unique filename
-    tp_config_path = "tp.config.toml"
+    tp_config_path = "job.tp.toml"
     if os.path.exists(tp_config_path):
         count = 1
         while True:
-            tp_config_path = f"tp.config{count}.toml"
+            tp_config_path = f"job{count}.tp.toml"
             if not os.path.exists(tp_config_path):
                 break
             count += 1
 
     print(f"Enter a name for the tp config, or press ENTER to use {tp_config_path}")
     new_name = safe_input("", default="", no_input=no_input)
-    new_name = f"tp.{new_name}.toml" if new_name else None
+    new_name = f"{new_name}.tp.toml" if new_name else None
     if new_name:
         tp_config_path = new_name
 
@@ -86,6 +86,7 @@ def main():
     parser.add_argument(
         "--no-input",
         action="store_true",
+        dest="global_no_input",
         help="Disable interactive prompts (warning: may be destructive)",
     )
 
@@ -102,38 +103,36 @@ def main():
         "create", help="Create a new cluster"
     )
     cluster_create_parser.add_argument(
-        "-i",  # uh this is kinda weird but -i is standard for ssh private key / identity file,
+        "-i",
         "--public-key",
-        help="Path to your public SSH key (e.g. ~/.ssh/id_rsa.pub)",
+        help="Path to your public SSH key (e.g. ~/.ssh/id_rsa.pub). Optional if SSH keys have been saved on account (see `tp me sshkey`).",
         required=False,
     )
     cluster_create_parser.add_argument(
-        "-t",
-        "--instance-type",
-        help="Instance type (e.g. 1xH100, 2xH100, 4xH100, 8xH100)",
-        required=True,
+        "instance_type",
+        help="Instance type https://docs.tensorpool.dev/resources/instance-types",
     )
-    cluster_create_parser.add_argument("--name", help="Cluster name (optional)")
+    cluster_create_parser.add_argument("--name", help="Cluster name")
+   
     cluster_create_parser.add_argument(
         "-n",
         "--num-nodes",
         type=int,
-        help="Number of nodes (optional, required if instance type is 8xH100)",
+        help="Number of nodes (required for multi-node clusters) https://docs.tensorpool.dev/resources/instance-types",
     )
     cluster_create_parser.add_argument(
         "--deletion-protection",
         action="store_true",
-        help="Enable deletion protection for the cluster (optional)",
-    )
-    cluster_create_parser.add_argument(
-        "--no-input",
-        action="store_true",
-        help="Skip confirmation prompts and create cluster immediately",
+        help="Enable deletion protection for the cluster",
     )
     cluster_create_parser.add_argument(
         "--wait",
         action="store_true",
         help="Wait for the cluster to be fully provisioned before returning",
+    )
+    cluster_create_parser.add_argument(
+        "--experimental-container",
+        help="(experimental feature) container image to image cluster instances with",
     )
     cluster_destroy_parser = cluster_subparsers.add_parser(
         "destroy", aliases=["rm"], help="Destroy a cluster"
@@ -159,6 +158,11 @@ def main():
         help="List all clusters in organization",
         dest="org",
     )
+    list_parser.add_argument(
+        "--instances",
+        action="store_true",
+        help="Show all instances across clusters",
+    )
 
     info_parser = cluster_subparsers.add_parser(
         "info", help="Get detailed information about a cluster"
@@ -173,29 +177,33 @@ def main():
     cluster_edit_parser.add_argument(
         "--deletion-protection",
         type=lambda x: x.lower() in ("true", "1", "yes"),
-        help="Enable/disable deletion protection (true/false)",
+        help="Enable/disable deletion protection (true/false). At least one editable property is required.",
     )
 
     cluster_attach_parser = cluster_subparsers.add_parser(
         "attach", help="Attach a storage volume to this cluster"
     )
-    cluster_attach_parser.add_argument("cluster_id", help="Cluster ID to attach storage to")
+    cluster_attach_parser.add_argument(
+        "cluster_id", help="Cluster ID to attach storage to"
+    )
     cluster_attach_parser.add_argument("storage_id", help="Storage ID to attach")
     cluster_attach_parser.add_argument(
-        "--no-input",
+        "--wait",
         action="store_true",
-        help="Skip confirmation prompts",
+        help="Wait for storage to be fully attached",
     )
 
     cluster_detach_parser = cluster_subparsers.add_parser(
         "detach", help="Detach a storage volume from this cluster"
     )
-    cluster_detach_parser.add_argument("cluster_id", help="Cluster ID to detach storage from")
+    cluster_detach_parser.add_argument(
+        "cluster_id", help="Cluster ID to detach storage from"
+    )
     cluster_detach_parser.add_argument("storage_id", help="Storage ID to detach")
     cluster_detach_parser.add_argument(
-        "--no-input",
+        "--wait",
         action="store_true",
-        help="Skip confirmation prompts",
+        help="Wait for storage to be fully detached",
     )
 
     storage_parser = subparsers.add_parser(
@@ -209,9 +217,7 @@ def main():
         "create", help="Create a new storage volume"
     )
     storage_create_parser.add_argument(
-        "-t",
-        "--type",
-        required=True,
+        "volume_type",
         help="Storage volume type ('fast' or 'flex')",
     )
     storage_create_parser.add_argument(
@@ -221,16 +227,16 @@ def main():
         required=False,
         help="Size of the storage volume in GB. Required for 'fast' volume types.",
     )
-    storage_create_parser.add_argument("--name", help="Storage volume name (optional)")
+    storage_create_parser.add_argument("--name", help="Storage volume name")
     storage_create_parser.add_argument(
         "--deletion-protection",
         action="store_true",
-        help="Enable deletion protection for the storage volume (optional)",
+        help="Enable deletion protection for the storage volume",
     )
     storage_create_parser.add_argument(
-        "--no-input",
+        "--wait",
         action="store_true",
-        help="Skip confirmation prompts and create storage volume immediately",
+        help="Wait for storage volume to be fully created",
     )
 
     storage_destroy_parser = storage_subparsers.add_parser(
@@ -241,6 +247,11 @@ def main():
         "--no-input",
         action="store_true",
         help="Skip confirmation prompts and destroy storage volume immediately",
+    )
+    storage_destroy_parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for storage volume to be fully destroyed",
     )
 
     storage_list_parser = storage_subparsers.add_parser(
@@ -271,13 +282,13 @@ def main():
     storage_edit_parser.add_argument(
         "--deletion-protection",
         type=lambda x: x.lower() in ("true", "1", "yes"),
-        help="Enable/disable deletion protection (true/false)",
+        help="Enable/disable deletion protection (true/false). At least one editable property is required.",
     )
     storage_edit_parser.add_argument(
         "-s",
         "--size",
         type=int,
-        help="New size for the storage volume in GB (size can only be increased)",
+        help="New size for the storage volume in GB (size can only be increased). At least one editable property is required.",
     )
 
     # Create job subparser for job-related commands
@@ -286,11 +297,20 @@ def main():
 
     job_subparsers.add_parser(
         "init",
-        help="Create a new tp.config.toml file.",
+        help="Create a new job.tp.toml file.",
     )
 
     run_parser = job_subparsers.add_parser("push", help="Run a job on TensorPool")
-    run_parser.add_argument("tp_config_path", help="Path to a tp.{config}.toml file")
+    run_parser.add_argument("tp_config_path", help="Path to a {name}.tp.toml file")
+    run_parser.add_argument(
+        "cluster_id",
+        help="Cluster ID to run the job on (e.g., c-xxx)",
+    )
+    run_parser.add_argument(
+        "--teardown",
+        action="store_true",
+        help="Destroy the cluster after the job finishes",
+    )
     # run_parser.add_argument(
     #     "--listen",
     #     action="store_true",
@@ -320,9 +340,19 @@ def main():
         action="store_true",
         help="Wait for the job to cancel before returning",
     )
+    cancel_parser.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Skip confirmation prompt and cancel job immediately",
+    )
 
     delete_parser = job_subparsers.add_parser("delete", help="Delete a terminal job")
     delete_parser.add_argument("job_id", help="Job ID to delete")
+    delete_parser.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Skip confirmation prompt and delete job immediately",
+    )
 
     listen_parser = job_subparsers.add_parser("listen", help="Listen to a job")
     listen_parser.add_argument("job_id", help="ID of the job to listen to")
@@ -332,15 +362,15 @@ def main():
     pull_parser.add_argument(
         "-i",
         "--private-key",
-        help="Path to SSH private key (e.g., ~/.ssh/id_ed25519)",
+        help="Path to SSH private key (e.g., ~/.ssh/id_ed25519). Not required if SSH keys are already on your account (see `tp me sshkey`).",
         required=False,
         default=None,
     )
-    pull_parser.add_argument(
-        "--path",
-        nargs="*",
-        help="Optional path(s) of specific files to pull (e.g., --path output/model.pt logs/training.log)",
-    )
+    # pull_parser.add_argument(
+    #     "--files",
+    #     nargs="+",
+    #     help="Optional file path(s) to pull (currently ignored; e.g., --files output/model.pt logs/training.log)",
+    # )
     pull_group = pull_parser.add_mutually_exclusive_group()
     pull_group.add_argument(
         "--force", action="store_true", help="Force overwrite existing files"
@@ -360,9 +390,7 @@ def main():
     #     help="Open the TensorPool dashboard",
     # )
 
-    ssh_parser = subparsers.add_parser(
-        "ssh", help="SSH into an instance"
-    )
+    ssh_parser = subparsers.add_parser("ssh", help="SSH into an instance")
     ssh_parser.add_argument("instance_id", help="Instance ID to SSH into")
     ssh_parser.add_argument(
         "ssh_args",
@@ -370,7 +398,9 @@ def main():
         help="Additional SSH arguments to pass through (e.g. -i, -o, -v)",
     )
 
-    me_parser = subparsers.add_parser("me", help="Display user information and manage SSH keys")
+    me_parser = subparsers.add_parser(
+        "me", help="Display user information and manage SSH keys"
+    )
     me_subparsers = me_parser.add_subparsers(dest="me_command")
 
     # Key management subcommand
@@ -381,7 +411,7 @@ def main():
         "add", help="Add an SSH public key"
     )
     me_key_create_parser.add_argument("key_path", help="Path to SSH public key file")
-    me_key_create_parser.add_argument("--name", help="Optional name for the SSH key")
+    me_key_create_parser.add_argument("--name", help="Name for the SSH key")
 
     me_key_list_parser = me_key_subparsers.add_parser(
         "list", aliases=["ls"], help="List all SSH keys"
@@ -407,6 +437,11 @@ def main():
     parser.add_argument("-v", "--version", action="version", version=f"{get_version()}")
 
     args = parser.parse_args()
+    args.no_input = getattr(args, "no_input", False) or getattr(args, "global_no_input", False)
+
+    if args.command is None:
+        parser.print_help()
+        return
 
     key = get_tensorpool_key()
     if not key:
@@ -445,9 +480,18 @@ def main():
                 run_parser.print_help()
                 return
 
-            success, job_id = job_push(args.tp_config_path)
+            success, job_id = job_push(
+                args.tp_config_path,
+                cluster_id=args.cluster_id,
+                teardown_cluster=args.teardown,
+            )
             if not success:
                 exit(1)
+
+            if args.teardown:
+                print(
+                    f"Teardown enabled: cluster {args.cluster_id} will be destroyed when the job finishes."
+                )
 
             # # Auto-listen if --listen flag is set and we have a job_id
             # if args.listen and job_id:
@@ -470,29 +514,27 @@ def main():
             if not args.job_id:
                 print("Error: Job ID is required")
                 pull_parser.print_help()
-                return
+                exit(1)
 
-            # Extract file paths if provided
-            files = getattr(args, "path", None)
-            if files is not None and len(files) == 0:
-                files = None
-
-            with Spinner(text="Fetching job files..."):
+            # File filtering is currently disabled; accept the flag but ignore it.
+            files = getattr(args, "files", None)
+            with Spinner(text="Fetching job files...") as spinner:
                 download_map, msg = job_pull(
                     args.job_id,
-                    files=files,
+                    # files=files,
                     # dry_run=args.dry_run,
                     tensorpool_priv_key_path=args.private_key,
+                    spinner=spinner,
                 )
 
-            if not download_map:
+            if download_map is None:
                 if msg:
                     print(msg)
-                return
+                exit(1)
 
             num_files = len(download_map)
             if num_files == 0:
-                print("No changed files to pull")
+                print(msg or "No changed files to pull")
                 return
 
             # if args.dry_run:
@@ -512,22 +554,23 @@ def main():
             print("Job files pulled successfully")
             return
         elif args.job_command == "cancel":
-            success, message = job_cancel(args.job_id, no_input=args.no_input, wait=args.wait)
+            success, message = job_cancel(
+                args.job_id, no_input=args.no_input, wait=args.wait
+            )
             if message:
                 print(message)
             if not success:
                 exit(1)
             return
         elif args.job_command == "delete":
-            with Spinner(text="Deleting job..."):
-                success, message = job_delete(args.job_id)
+            success, message = job_delete(args.job_id, no_input=args.no_input)
             if message:
                 print(message)
             if not success:
                 exit(1)
             return
         elif args.job_command in ["list", "ls"]:
-            success, message = job_list(org=args.org)
+            success, message = job_list(include_org=args.org)
             if message:
                 print(message)
             if not success:
@@ -552,9 +595,9 @@ def main():
                 identity_file_path,
                 args.instance_type,
                 args.name,
+                args.experimental_container,
                 args.num_nodes,
                 args.deletion_protection,
-                no_input=args.no_input,
                 wait=args.wait,
             )
             if final_message:
@@ -563,14 +606,18 @@ def main():
                 exit(1)
             return
         elif args.cluster_command in ["destroy", "rm"]:
-            success, message = cluster_destroy(args.cluster_id, no_input=args.no_input, wait=args.wait)
+            success, message = cluster_destroy(
+                args.cluster_id, no_input=args.no_input, wait=args.wait
+            )
             if message:
                 print(message)
             if not success:
                 exit(1)
             return
         elif args.cluster_command in ["list", "ls"]:
-            success, message = cluster_list(org=args.org)
+            success, message = cluster_list(
+                include_org=args.org, instances=args.instances
+            )
             if message:
                 print(message)
             if not success:
@@ -598,7 +645,9 @@ def main():
             return
         elif args.cluster_command == "attach":
             success, message = storage_attach(
-                args.storage_id, [args.cluster_id], no_input=args.no_input
+                args.storage_id,
+                [args.cluster_id],
+                wait=args.wait,
             )
             if message:
                 print(message)
@@ -607,7 +656,9 @@ def main():
             return
         elif args.cluster_command == "detach":
             success, message = storage_detach(
-                args.storage_id, [args.cluster_id], no_input=args.no_input
+                args.storage_id,
+                [args.cluster_id],
+                wait=args.wait,
             )
             if message:
                 print(message)
@@ -624,9 +675,7 @@ def main():
             ssh_parser.print_help()
             exit(1)
 
-        ssh_args = (
-            args.ssh_args if hasattr(args, "ssh_args") and args.ssh_args else []
-        )
+        ssh_args = args.ssh_args if hasattr(args, "ssh_args") and args.ssh_args else []
         success, message = ssh_command(instance_id, ssh_args)
         if message:
             print(message)
@@ -636,7 +685,11 @@ def main():
     elif args.command in ["storage", "nfs"]:
         if args.storage_command == "create":
             success, message = storage_create(
-                args.name, args.size, args.type, args.deletion_protection, no_input=args.no_input
+                args.name,
+                args.size,
+                args.volume_type,
+                args.deletion_protection,
+                wait=args.wait,
             )
             if message:
                 print(message)
@@ -644,7 +697,9 @@ def main():
                 exit(1)
             return
         elif args.storage_command in ["destroy", "rm"]:
-            success, message = storage_destroy(args.storage_id, no_input=args.no_input)
+            success, message = storage_destroy(
+                args.storage_id, no_input=args.no_input, wait=args.wait
+            )
             if message:
                 print(message)
             if not success:
@@ -652,7 +707,7 @@ def main():
             return
         elif args.storage_command in ["list", "ls"]:
             with Spinner(text="Fetching storage volumes..."):
-                success, message = storage_list(org=args.org)
+                success, message = storage_list(include_org=args.org)
             if message:
                 print(message)
             if not success:
@@ -696,7 +751,7 @@ def main():
                     exit(1)
                 return
             elif args.sshkey_command in ["list", "ls"]:
-                success, message = ssh_key_list(org=args.org)
+                success, message = ssh_key_list(include_org=args.org)
                 if message:
                     print(message)
                 if not success:
@@ -714,7 +769,9 @@ def main():
                 return
         # Handle preferences subcommand
         elif args.me_command == "preferences":
-            print("To manage your preferences, visit: https://tensorpool.dev/dashboard/profile")
+            print(
+                "To manage your preferences, visit: https://tensorpool.dev/dashboard/profile"
+            )
             return
         # Handle default 'tp me' (display user info)
         else:
@@ -724,7 +781,7 @@ def main():
 
             # Display engine URL if it's been overridden
             if os.environ.get("TENSORPOOL_ENGINE"):
-                print(f"\nTENSORPOOL_ENGINE={ENGINE}")
+                print(f"TENSORPOOL_ENGINE={ENGINE}")
 
             if not success:
                 exit(1)
@@ -732,9 +789,6 @@ def main():
 
     parser.print_help()
     return
-
-    # text = " ".join(args.query)
-    # print(f"You said: {text}")
 
 
 if __name__ == "__main__":

@@ -7,16 +7,71 @@ import importlib.metadata
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import json
+import shlex
 import subprocess
 import sys
 import asyncio
 import websockets
 import threading
-import queue
 from .spinner import Spinner
 import platform
 
 ENGINE: Final = os.environ.get("TENSORPOOL_ENGINE", "https://engine.tensorpool.dev")
+
+
+def _run_streaming_command(
+    command: str, show_stdout: bool = False
+) -> Tuple[int, str, str]:
+    """Run a shell command while preserving carriage-return progress updates."""
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        bufsize=0,
+        env=env,
+    )
+
+    stdout_chunks: List[str] = []
+    stderr_chunks: List[str] = []
+
+    def _drain_stream(stream, sink, target_stream=None):
+        while True:
+            chunk = stream.read(1)
+            if chunk == b"":
+                break
+            decoded_chunk = chunk.decode("utf-8", errors="replace")
+            sink.append(decoded_chunk)
+            if target_stream is not None:
+                if hasattr(target_stream, "buffer"):
+                    target_stream.buffer.write(chunk)
+                else:
+                    target_stream.write(decoded_chunk)
+                target_stream.flush()
+
+    stdout_thread = threading.Thread(
+        target=_drain_stream,
+        args=(process.stdout, stdout_chunks, sys.stdout if show_stdout else None),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_drain_stream,
+        args=(process.stderr, stderr_chunks, sys.stderr if show_stdout else None),
+        daemon=True,
+    )
+
+    stdout_thread.start()
+    stderr_thread.start()
+
+    returncode = process.wait()
+    stdout_thread.join()
+    stderr_thread.join()
+
+    return returncode, "".join(stdout_chunks), "".join(stderr_chunks)
 
 
 def safe_input(
@@ -222,6 +277,166 @@ def health_check() -> (bool, str):
         return (False, f"Unexpected error during health check: {str(e)}")
 
 
+def _normalize_platform_system() -> str:
+    """Return the lowercase OS slug expected by REST endpoints."""
+    return {
+        "Windows": "windows",
+        "Linux": "linux",
+        "Darwin": "darwin",
+    }.get(platform.system(), platform.system().lower())
+
+
+def _decode_response_json(response: requests.Response) -> Tuple[Optional[Dict], Optional[str]]:
+    """Decode a JSON response into a dict and surface malformed responses consistently."""
+    try:
+        data = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return None, f"Failed to decode server response. Status code: {response.status_code}"
+
+    if not isinstance(data, dict):
+        return None, f"Unexpected server response type. Status code: {response.status_code}"
+
+    return data, None
+
+
+def _response_message(
+    data: Optional[Dict], default: str, *, fallback_error_key: bool = True
+) -> str:
+    """Pick the most useful user-facing message from a JSON response."""
+    if not data:
+        return default
+
+    if data.get("message"):
+        return str(data["message"])
+
+    if fallback_error_key and data.get("error"):
+        return str(data["error"])
+
+    if data.get("external_message"):
+        return str(data["external_message"])
+
+    return default
+
+
+def _confirm_destructive_action(action: str, target: str, no_input: bool) -> Tuple[bool, str]:
+    """Confirm a destructive action locally before calling the API."""
+    if no_input:
+        return True, ""
+
+    answer = safe_confirm(f"{action} {target}? [y/N]: ", no_input=no_input, default="n")
+    if answer.strip().lower() not in {"y", "yes"}:
+        return False, f"{action} cancelled"
+
+    return True, ""
+
+
+def _poll_request_until_terminal(
+    request_id: str,
+    headers: Dict[str, str],
+    spinner: Optional[Spinner],
+    pending_text: str,
+) -> Tuple[bool, str]:
+    """Poll a request resource until it reaches a terminal state."""
+    while True:
+        try:
+            response = requests.get(
+                f"{ENGINE}/request/info/{request_id}",
+                headers=headers,
+                timeout=30,
+            )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to poll request status: {str(e)}"
+
+        data, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 200:
+            return False, _response_message(
+                data,
+                f"Error fetching request status. Status code: {response.status_code}",
+            )
+
+        request_status = str(data.get("status", "")).upper()
+        message = _response_message(data, pending_text)
+
+        if spinner:
+            spinner.update_text(message)
+
+        if request_status == "COMPLETED":
+            return True, message
+        if request_status == "FAILED":
+            return False, message
+
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(1, int(retry_after)) if retry_after else 2
+        except ValueError:
+            delay = 2
+        time.sleep(delay)
+
+
+def _poll_multiple_requests_until_terminal(
+    request_ids: List[str],
+    headers: Dict[str, str],
+    spinner: Optional[Spinner],
+    pending_text: str,
+) -> Tuple[bool, str]:
+    """Poll multiple request IDs sequentially until all complete or any fail."""
+    last_message = pending_text
+    for request_id in request_ids:
+        success, message = _poll_request_until_terminal(
+            request_id=request_id,
+            headers=headers,
+            spinner=spinner,
+            pending_text=pending_text,
+        )
+        last_message = message
+        if not success:
+            return False, message
+
+    return True, last_message
+
+
+def _poll_job_cancel_until_terminal(
+    job_id: str, headers: Dict[str, str], spinner: Optional[Spinner]
+) -> Tuple[bool, str]:
+    """Poll job info until cancellation reaches a terminal state."""
+    while True:
+        try:
+            response = requests.get(
+                f"{ENGINE}/job/info/{job_id}",
+                headers=headers,
+                timeout=30,
+            )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to poll job status: {str(e)}"
+
+        data, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 200:
+            return False, _response_message(
+                data,
+                f"Error fetching job info. Status code: {response.status_code}",
+            )
+
+        job_info = data.get("job_info") or {}
+        status = str(job_info.get("status", "")).lower()
+        message = _response_message(data, f"Job status: {status or 'unknown'}")
+
+        if spinner:
+            spinner.update_text(message)
+
+        if status == "canceled":
+            return True, message
+        if status in {"completed", "error", "failed"}:
+            return False, message
+
+        time.sleep(2)
+
+
 def dump_file(content: str, path: str) -> bool:
     """
     Save raw text content to the specified file path
@@ -326,44 +541,11 @@ def job_listen(job_id: str) -> Tuple[bool, str]:
     return success, message
 
 
-def fetch_dashboard() -> str:
-    """
-    Fetch the TensorPool dashboard URL
-    """
-
-    timezone = time.strftime("%z")
-    # print(timezone)
-
-    headers = _get_headers()
-    payload = {
-        "timezone": timezone,  # Timezone to formate timestamps
-    }
-
-    fallback_dashboard_msg = "https://tensorpool.dev/dashboard"
-
-    try:
-        response = requests.post(
-            f"{ENGINE}/dashboard",
-            json=payload,
-            headers=headers,
-            timeout=15,
-        )
-
-        try:
-            res = response.json()
-        except requests.exceptions.JSONDecodeError:
-            return fallback_dashboard_msg
-
-        message = res.get("message", fallback_dashboard_msg)
-        return message
-
-    except Exception as e:
-        raise RuntimeError(f"Failed to fetch dashboard URL: {str(e)}")
-
-
 async def _job_push_async(
     tp_config: str,
     api_key: str,
+    cluster_id: str,
+    teardown_cluster: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     ws_url = (
         f"{ENGINE.replace('http://', 'ws://').replace('https://', 'wss://')}/job/push"
@@ -383,6 +565,8 @@ async def _job_push_async(
             initial_data = {
                 "tp_config": tp_config,
                 "system": platform.system(),
+                "cluster_id": cluster_id,
+                "teardown_cluster": teardown_cluster,
             }
 
             await websocket.send(json.dumps(initial_data))
@@ -409,73 +593,10 @@ async def _job_push_async(
                         continue
 
                     show_stdout = data.get("command_show_stdout", False)
-                    # print("command:",command)
-                    # print("show_stdout:", show_stdout)
-
                     try:
-                        # Set up environment to force unbuffered output
-                        env = os.environ.copy()
-                        env["PYTHONUNBUFFERED"] = "1"
-
-                        process = subprocess.Popen(
-                            command,
-                            shell=True,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            stdin=subprocess.DEVNULL,  # Don't accept stdin
-                            text=True,
-                            bufsize=1,  # Line buffering
-                            universal_newlines=True,
-                            env=env,
+                        returncode, stdout, stderr = _run_streaming_command(
+                            command, show_stdout=show_stdout
                         )
-
-                        # Use threading to read stdout and stderr concurrently
-                        stdout_lines = []
-                        stderr_lines = []
-                        stdout_queue = queue.Queue()
-                        stderr_queue = queue.Queue()
-
-                        def read_stdout():
-                            while True:
-                                line = process.stdout.readline()
-                                if not line:
-                                    break
-                                stdout_queue.put(line)
-                                stdout_lines.append(line)
-                                if show_stdout:
-                                    sys.stdout.write(line)
-                                    sys.stdout.flush()
-
-                        def read_stderr():
-                            while True:
-                                line = process.stderr.readline()
-                                if not line:
-                                    break
-                                stderr_queue.put(line)
-                                stderr_lines.append(line)
-                                if (
-                                    show_stdout
-                                ):  # Show stderr in real-time when show_stdout is True
-                                    sys.stderr.write(line)
-                                    sys.stderr.flush()
-
-                        # Start threads to read stdout and stderr
-                        stdout_thread = threading.Thread(target=read_stdout)
-                        stderr_thread = threading.Thread(target=read_stderr)
-                        stdout_thread.daemon = True
-                        stderr_thread.daemon = True
-                        stdout_thread.start()
-                        stderr_thread.start()
-
-                        # Wait for process completion
-                        returncode = process.wait()
-
-                        # Wait for threads to finish reading
-                        stdout_thread.join(timeout=1)
-                        stderr_thread.join(timeout=1)
-
-                        stdout = "".join(stdout_lines)
-                        stderr = "".join(stderr_lines)
 
                         # Print errors if command failed (and not already shown)
                         if returncode != 0 and not show_stdout:
@@ -533,11 +654,15 @@ async def _job_push_async(
 
 def job_push(
     tp_config_path: str,
+    cluster_id: str,
+    teardown_cluster: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """
     Push a job
     Args:
         tp_config_path: Path to the tp config file
+        cluster_id: Cluster ID to run the job on
+        teardown_cluster: Whether to destroy the cluster after the job finishes
     Returns:
         Tuple[bool, Optional[str]]: (success status, job_id if available)
     """
@@ -562,6 +687,8 @@ def job_push(
         _job_push_async(
             tp_config,
             api_key,
+            cluster_id=cluster_id,
+            teardown_cluster=teardown_cluster,
         )
     )
 
@@ -571,6 +698,7 @@ def job_pull(
     files: Optional[List[str]] = None,
     dry_run: bool = False,
     tensorpool_priv_key_path: Optional[str] = None,
+    spinner: Optional[Spinner] = None,
 ) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
     """
     Pull job output files or execute commands
@@ -579,8 +707,12 @@ def job_pull(
         files: Optional list of specific files to pull
         dry_run: If True, only preview files without downloading
         tensorpool_priv_key_path: Path to tensorpool private key
+        spinner: Optional spinner to pause while streaming live command output
     Returns:
-        A tuple containing a download map (or None) and an optional message
+        A tuple containing:
+        - None and a message on failure
+        - An empty download map and an optional message when there are no files to pull
+        - A populated download map and an optional message on success
     """
     if not job_id:
         return None, "Job ID is required"
@@ -588,7 +720,7 @@ def job_pull(
     headers = _get_headers()
     params = {
         "dry_run": dry_run,
-        "system": platform.system(),
+        "system": _normalize_platform_system(),
     }
     if files:
         params["files"] = files
@@ -629,47 +761,14 @@ def job_pull(
             show_stdout = result.get("command_show_stdout", False)
 
             try:
-                # Set up environment to force unbuffered output
-                env = os.environ.copy()
-                env["PYTHONUNBUFFERED"] = "1"
-
-                process = subprocess.Popen(
-                    command,
-                    shell=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.DEVNULL,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True,
-                    env=env,
+                if spinner:
+                    spinner.pause()
+                returncode, stdout_text, stderr_text = _run_streaming_command(
+                    command, show_stdout=show_stdout
                 )
-
-                # Read output in real-time
-                stdout_lines = []
-                stderr_lines = []
-
-                # Read stdout line by line
-                for line in process.stdout:
-                    stdout_lines.append(line)
-                    if show_stdout:
-                        sys.stdout.write(line)
-                        sys.stdout.flush()
-
-                # Wait for process to complete and get any remaining stderr
-                stderr = process.stderr.read()
-                if stderr:
-                    stderr_lines.append(stderr)
-                    if show_stdout:
-                        sys.stderr.write(stderr)
-                        sys.stderr.flush()
-
-                returncode = process.wait()
 
                 # Print errors if command failed and not already shown
                 if returncode != 0 and not show_stdout:
-                    stderr_text = "".join(stderr_lines)
-                    stdout_text = "".join(stdout_lines)
                     if stderr_text:
                         print(f"Command error: {stderr_text}")
                     if stdout_text:
@@ -678,6 +777,9 @@ def job_pull(
             except Exception as e:
                 print(f"Failed to execute command: {str(e)}")
                 return None, f"Failed to execute command: {str(e)}"
+            finally:
+                if spinner:
+                    spinner.resume()
 
     download_map = result.get("download_map")
     message = result.get("message")
@@ -706,6 +808,13 @@ def download_files(download_map: Dict[str, str], overwrite: bool = False) -> boo
             for retries in range(max_retries + 1):
                 try:
                     response = requests.get(url, headers=headers, stream=True)
+                    if response.status_code != 200:
+                        if retries < max_retries:
+                            delay = base_delay * (2**retries)
+                            time.sleep(delay)
+                            continue
+                        return False, (file_path, response.status_code, response.text)
+
                     total_size = int(response.headers.get("content-length", 0))
 
                     if os.path.exists(file_path):
@@ -732,15 +841,7 @@ def download_files(download_map: Dict[str, str], overwrite: bool = False) -> boo
                                     f.write(chunk)
                                     pbar.update(len(chunk))
 
-                    if response.status_code == 200:
-                        return True, (file_path, response.status_code, "Success")
-
-                    if retries < max_retries:
-                        delay = base_delay * (2**retries)  # Exponential backoff
-                        time.sleep(delay)
-                        continue
-
-                    return False, (file_path, response.status_code, response.text)
+                    return True, (file_path, response.status_code, "Success")
 
                 except Exception as e:
                     if retries < max_retries:
@@ -781,43 +882,53 @@ def job_cancel(job_id: str, no_input: bool = False, wait: bool = False) -> Tuple
         A tuple containing a boolean indicating success and a message
     """
     assert job_id is not None, "A job ID is needed to cancel"
+    if not no_input and not sys.stdin.isatty():
+        return False, "Cancel job requires explicit confirmation in non-interactive mode."
 
-    # Build endpoint
-    endpoint = f"/job/cancel/{job_id}"
-    if no_input:
-        endpoint += "?no_input=true"
+    confirmed, message = _confirm_destructive_action("Cancel job", job_id, no_input)
+    if not confirmed:
+        return False, message
 
-    # Run the async function with a spinner
+    headers = _get_headers()
+
     with Spinner("Cancelling job...") as spinner:
-        success, message = asyncio.run(
-            _ws_operation_async(
-                endpoint=endpoint,
-                spinner=spinner,
-                payload={"wait": wait},
-                handle_user_input=not no_input,
-                success_message=f"Job {job_id} cancelled successfully",
-                error_message="Job cancellation failed",
-                unexpected_end_message=(
-                    "Connection ended unexpectedly during job cancellation.\n"
-                    "The job may still be cancelling. Check 'tp job list' to see the current status."
-                ),
+        try:
+            response = requests.post(
+                f"{ENGINE}/job/cancel/{job_id}",
+                headers=headers,
+                timeout=30,
             )
-        )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to cancel job: {str(e)}"
 
-    return success, message
+        result, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code not in {200, 202}:
+            return False, _response_message(
+                result, f"Job cancellation failed. Status code: {response.status_code}"
+            )
+
+        if not wait:
+            return True, _response_message(
+                result, f"Job {job_id} cancellation initiated"
+            )
+
+        return _poll_job_cancel_until_terminal(job_id, headers, spinner)
 
 
-def job_list(org: bool = False) -> Tuple[bool, str]:
+def job_list(include_org: bool = False) -> Tuple[bool, str]:
     """
     List jobs - either user's jobs or all org jobs
     Args:
-        org: If True, list all jobs in the user's organization
+        include_org: If True, list all jobs in the user's organization
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     headers = _get_headers()
 
-    params = {"org": org} if org else {}
+    params = {"include_org": include_org} if include_org else {}
 
     response = requests.get(
         f"{ENGINE}/job/list",
@@ -975,9 +1086,9 @@ def cluster_create(
     identity_file: Optional[str],
     instance_type: str,
     name: Optional[str],
+    experimental_container: Optional[str],
     num_nodes: Optional[int],
     deletion_protection: bool = False,
-    no_input: bool = False,
     wait: bool = False,
 ) -> Tuple[bool, str]:
     """
@@ -986,6 +1097,7 @@ def cluster_create(
         identity_file: Optional path to public SSH key file
         instance_type: Instance type (e.g. 1xH100, 2xH100, 4xH100, 8xH100)
         name: Optional cluster name
+        experimental_container: Optional container image override
         num_nodes: Number of nodes (must be >= 1)
         deletion_protection: Enable deletion protection for the cluster
         no_input: Whether to skip interactive input prompts
@@ -1022,34 +1134,44 @@ def cluster_create(
     if name:
         config_payload["tp_cluster_name"] = name
 
-    # Build endpoint
-    endpoint = "/cluster/create"
-    params = []
-    if no_input:
-        params.append("no_input=true")
-    if wait:
-        params.append("wait=true")
-    if params:
-        endpoint += "?" + "&".join(params)
+    if experimental_container:
+        config_payload["experimental_container"] = experimental_container
 
-    # Run the async function with a spinner
+    headers = _get_headers()
+
     with Spinner("Creating cluster...") as spinner:
-        success, message = asyncio.run(
-            _ws_operation_async(
-                endpoint=endpoint,
-                spinner=spinner,
-                payload=config_payload,
-                handle_user_input=not no_input,
-                success_message="Cluster created successfully",
-                error_message="Cluster creation failed",
-                unexpected_end_message=(
-                    "Connection ended unexpectedly during cluster creation.\n"
-                    "The cluster may still be provisioning. Check 'tp cluster list' to see the current status."
-                ),
+        try:
+            response = requests.post(
+                f"{ENGINE}/cluster/create",
+                json=config_payload,
+                headers=headers,
+                timeout=30,
             )
-        )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to create cluster: {str(e)}"
 
-    return success, message
+        result, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 202:
+            return False, _response_message(
+                result, f"Cluster creation failed. Status code: {response.status_code}"
+            )
+
+        if not wait:
+            return True, _response_message(result, "Cluster creation initiated")
+
+        request_id = result.get("request_id")
+        if not request_id:
+            return True, _response_message(result, "Cluster creation initiated")
+
+        return _poll_request_until_terminal(
+            request_id=request_id,
+            headers=headers,
+            spinner=spinner,
+            pending_text="Waiting for cluster provisioning...",
+        )
 
 
 def cluster_destroy(cluster_id: str, no_input: bool = False, wait: bool = False) -> Tuple[bool, str]:
@@ -1062,47 +1184,62 @@ def cluster_destroy(cluster_id: str, no_input: bool = False, wait: bool = False)
     Returns:
         A tuple containing a boolean indicating success and a message
     """
-    # Build endpoint
-    endpoint = f"/cluster/destroy/{cluster_id}"
-    params = []
-    if no_input:
-        params.append("no_input=true")
-    if wait:
-        params.append("wait=true")
-    if params:
-        endpoint += "?" + "&".join(params)
+    confirmed, message = _confirm_destructive_action("Destroy cluster", cluster_id, no_input)
+    if not confirmed:
+        return False, message
 
-    # Run the async function with a spinner
+    headers = _get_headers()
+
     with Spinner("Destroying cluster...") as spinner:
-        success, message = asyncio.run(
-            _ws_operation_async(
-                endpoint=endpoint,
-                spinner=spinner,
-                payload=None,
-                handle_user_input=not no_input,
-                success_message=f"Cluster {cluster_id} destroyed successfully",
-                error_message="Cluster destruction failed",
-                unexpected_end_message=(
-                    "Connection ended unexpectedly during cluster destruction.\n"
-                    "The cluster may still be destroying. Check 'tp cluster list' to see the current status."
-                ),
+        try:
+            response = requests.delete(
+                f"{ENGINE}/cluster/{cluster_id}",
+                headers=headers,
+                timeout=30,
             )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to destroy cluster: {str(e)}"
+
+        result, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 202:
+            return False, _response_message(
+                result, f"Cluster destruction failed. Status code: {response.status_code}"
+            )
+
+        if not wait:
+            return True, _response_message(result, f"Cluster {cluster_id} destruction initiated")
+
+        request_id = result.get("request_id")
+        if not request_id:
+            return True, _response_message(result, f"Cluster {cluster_id} destruction initiated")
+
+        return _poll_request_until_terminal(
+            request_id=request_id,
+            headers=headers,
+            spinner=spinner,
+            pending_text="Waiting for cluster destruction...",
         )
 
-    return success, message
 
-
-def cluster_list(org: bool = False) -> Tuple[bool, str]:
+def cluster_list(include_org: bool = False, instances: bool = False) -> Tuple[bool, str]:
     """
     List clusters - either user's clusters or all org clusters
     Args:
-        org: If True, list all clusters in the user's organization
+        include_org: If True, list all clusters in the user's organization
+        instances: If True, show all instances across clusters
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     headers = _get_headers()
 
-    params = {"org": org} if org else {}
+    params: dict = {}
+    if include_org:
+        params["include_org"] = True
+    if instances:
+        params["instances"] = True
 
     response = requests.get(
         f"{ENGINE}/cluster/list",
@@ -1253,20 +1390,21 @@ def ssh_command(
         print(message)
 
     if command:
-        # Execute the SSH command interactively
         try:
-            # Append additional SSH arguments if provided
-            if ssh_args:
-                additional_args = " ".join(ssh_args)
-                full_command = f"{command} {additional_args}"
-            else:
-                full_command = command
+            command_args = shlex.split(command, posix=(os.name != "nt"))
+        except ValueError as e:
+            return False, f"Malformed ssh command from server: {str(e)}"
 
-            subprocess.run(full_command, shell=True)
+        if not command_args:
+            return False, "ssh response did not include an executable command"
+
+        if ssh_args:
+            command_args.extend(ssh_args)
+
+        try:
+            os.execvpe(command_args[0], command_args, os.environ.copy())
             return True, ""
-        except KeyboardInterrupt:
-            return True, "\nSSH session terminated"
-        except Exception as e:
+        except OSError as e:
             return False, f"Failed to execute SSH command: {str(e)}"
     else:
         return False, "ssh response not received from server"
@@ -1312,7 +1450,7 @@ def storage_create(
     size: Optional[int],
     storage_type: str,
     deletion_protection: bool = False,
-    no_input: bool = False,
+    wait: bool = False,
 ) -> Tuple[bool, str]:
     """
     Create a new storage volume
@@ -1321,7 +1459,7 @@ def storage_create(
         size: Size of the storage volume in GB
         storage_type: Type of storage volume
         deletion_protection: Enable deletion protection for the storage volume
-        no_input: Whether to skip interactive input prompts
+        wait: Whether to wait for the storage volume to be fully created
     Returns:
         A tuple containing a boolean indicating success and a message
     """
@@ -1332,70 +1470,99 @@ def storage_create(
     if name:
         payload["name"] = name
 
-    # Build endpoint
-    endpoint = "/storage/create"
-    if no_input:
-        endpoint += "?no_input=true"
+    headers = _get_headers()
 
-    # Run the async function with a spinner
     with Spinner("Creating storage volume...") as spinner:
-        success, message = asyncio.run(
-            _ws_operation_async(
-                endpoint=endpoint,
-                spinner=spinner,
-                payload=payload,
-                handle_user_input=not no_input,
-                success_message="Storage volume created successfully",
-                error_message="Storage volume creation failed",
-                unexpected_end_message=(
-                    "Connection ended unexpectedly during storage volume creation.\n"
-                    "The volume may still be provisioning. Check 'tp storage list' to see the current status."
-                ),
+        try:
+            response = requests.post(
+                f"{ENGINE}/storage/create",
+                json=payload,
+                headers=headers,
+                timeout=30,
             )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to create storage volume: {str(e)}"
+
+        result, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 202:
+            return False, _response_message(
+                result, f"Storage volume creation failed. Status code: {response.status_code}"
+            )
+
+        if not wait:
+            return True, _response_message(result, "Storage volume creation initiated")
+
+        request_id = result.get("request_id")
+        if not request_id:
+            return True, _response_message(result, "Storage volume creation initiated")
+
+        return _poll_request_until_terminal(
+            request_id=request_id,
+            headers=headers,
+            spinner=spinner,
+            pending_text="Waiting for storage provisioning...",
         )
 
-    return success, message
 
-
-def storage_destroy(storage_id: str, no_input: bool = False) -> Tuple[bool, str]:
+def storage_destroy(storage_id: str, no_input: bool = False, wait: bool = False) -> Tuple[bool, str]:
     """
     Destroy a storage volume
     Args:
         storage_id: The ID of the storage volume to destroy
         no_input: Whether to skip interactive confirmation prompts
+        wait: Whether to wait for the storage volume to be fully destroyed (unused, kept for API compat)
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     if not storage_id:
         return False, "Storage ID is required"
 
-    # Build endpoint
-    endpoint = f"/storage/destroy/{storage_id}"
-    if no_input:
-        endpoint += "?no_input=true"
+    confirmed, message = _confirm_destructive_action("Destroy storage volume", storage_id, no_input)
+    if not confirmed:
+        return False, message
 
-    # Run the async function with a spinner
+    headers = _get_headers()
+
     with Spinner("Destroying storage volume...") as spinner:
-        success, message = asyncio.run(
-            _ws_operation_async(
-                endpoint=endpoint,
-                spinner=spinner,
-                payload=None,
-                handle_user_input=not no_input,
-                success_message=f"Storage volume {storage_id} destroyed successfully",
-                error_message="Storage volume destruction failed",
-                unexpected_end_message=(
-                    "Connection ended unexpectedly during storage volume destruction.\n"
-                    "The volume may still be destroying. Check 'tp storage list' to see the current status."
-                ),
+        try:
+            response = requests.delete(
+                f"{ENGINE}/storage/{storage_id}",
+                headers=headers,
+                timeout=30,
             )
-        )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to destroy storage volume: {str(e)}"
 
-    return success, message
+        result, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 202:
+            return False, _response_message(
+                result,
+                f"Storage volume destruction failed. Status code: {response.status_code}",
+            )
+
+        if not wait:
+            return True, _response_message(result, f"Storage volume {storage_id} destruction initiated")
+
+        request_id = result.get("request_id")
+        if not request_id:
+            return True, _response_message(result, f"Storage volume {storage_id} destruction initiated")
+
+        return _poll_request_until_terminal(
+            request_id=request_id,
+            headers=headers,
+            spinner=spinner,
+            pending_text="Waiting for storage destruction...",
+        )
 
 
 def storage_attach(
-    storage_id: str, cluster_ids: List[str], no_input: bool = False
+    storage_id: str, cluster_ids: List[str], no_input: bool = False, wait: bool = False
 ) -> Tuple[bool, str]:
     """
     Attach a storage volume to one or more clusters
@@ -1415,33 +1582,45 @@ def storage_attach(
     # Build payload
     payload = {"storage_id": storage_id, "cluster_ids": cluster_ids}
 
-    # Build endpoint
-    endpoint = "/storage/attach"
-    if no_input:
-        endpoint += "?no_input=true"
+    headers = _get_headers()
 
-    # Run the async function with a spinner
     with Spinner("Attaching storage volume...") as spinner:
-        success, message = asyncio.run(
-            _ws_operation_async(
-                endpoint=endpoint,
-                spinner=spinner,
-                payload=payload,
-                handle_user_input=not no_input,
-                success_message="Storage volume attached successfully",
-                error_message="Storage volume attachment failed",
-                unexpected_end_message=(
-                    "Connection ended unexpectedly during storage volume attachment.\n"
-                    "The attachment may still be in progress. Check 'tp storage list' to see the current status."
-                ),
+        try:
+            response = requests.post(
+                f"{ENGINE}/storage/attach",
+                json=payload,
+                headers=headers,
+                timeout=30,
             )
-        )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to attach storage volume: {str(e)}"
 
-    return success, message
+        result, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 202:
+            return False, _response_message(
+                result, f"Storage volume attachment failed. Status code: {response.status_code}"
+            )
+
+        if not wait:
+            return True, _response_message(result, "Storage volume attachment initiated")
+
+        request_ids = result.get("request_ids") or []
+        if not request_ids:
+            return True, _response_message(result, "Storage volume attachment initiated")
+
+        return _poll_multiple_requests_until_terminal(
+            request_ids=request_ids,
+            headers=headers,
+            spinner=spinner,
+            pending_text="Waiting for storage attachment...",
+        )
 
 
 def storage_detach(
-    storage_id: str, cluster_ids: List[str], no_input: bool = False
+    storage_id: str, cluster_ids: List[str], no_input: bool = False, wait: bool = False
 ) -> Tuple[bool, str]:
     """
     Detach a storage volume from one or more clusters
@@ -1458,46 +1637,60 @@ def storage_detach(
     if not cluster_ids:
         return False, "No cluster IDs provided"
 
+    if len(cluster_ids) != 1:
+        return False, "Exactly one cluster ID is required"
+
     # Build payload
-    payload = {"storage_id": storage_id, "cluster_ids": cluster_ids}
+    payload = {"storage_id": storage_id, "cluster_id": cluster_ids[0]}
+    headers = _get_headers()
 
-    # Build endpoint
-    endpoint = "/storage/detach"
-    if no_input:
-        endpoint += "?no_input=true"
-
-    # Run the async function with a spinner
     with Spinner("Detaching storage volume...") as spinner:
-        success, message = asyncio.run(
-            _ws_operation_async(
-                endpoint=endpoint,
-                spinner=spinner,
-                payload=payload,
-                handle_user_input=not no_input,
-                success_message="Storage volume detached successfully",
-                error_message="Storage volume detachment failed",
-                unexpected_end_message=(
-                    "Connection ended unexpectedly during storage volume detachment.\n"
-                    "The detachment may still be in progress. Check 'tp storage list' to see the current status."
-                ),
+        try:
+            response = requests.post(
+                f"{ENGINE}/storage/detach",
+                json=payload,
+                headers=headers,
+                timeout=30,
             )
+        except requests.exceptions.RequestException as e:
+            return False, f"Failed to detach storage volume: {str(e)}"
+
+        result, decode_error = _decode_response_json(response)
+        if decode_error:
+            return False, decode_error
+
+        if response.status_code != 202:
+            return False, _response_message(
+                result, f"Storage volume detachment failed. Status code: {response.status_code}"
+            )
+
+        if not wait:
+            return True, _response_message(result, "Storage volume detachment initiated")
+
+        request_id = result.get("request_id")
+        if not request_id:
+            return True, _response_message(result, "Storage volume detachment initiated")
+
+        return _poll_request_until_terminal(
+            request_id=request_id,
+            headers=headers,
+            spinner=spinner,
+            pending_text="Waiting for storage detachment...",
         )
 
-    return success, message
 
-
-def storage_list(org: bool = False) -> Tuple[bool, str]:
+def storage_list(include_org: bool = False) -> Tuple[bool, str]:
     """
     List storage volumes - either user's volumes or all org volumes
     Args:
-        org: If True, list all volumes in the user's organization
+        include_org: If True, list all volumes in the user's organization
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     headers = _get_headers()
 
     # Add org parameter to request
-    params = {"org": org} if org else {}
+    params = {"include_org": include_org} if include_org else {}
 
     try:
         response = requests.get(
@@ -1583,14 +1776,17 @@ def cluster_edit(
     if not cluster_id:
         return False, "Cluster ID is required"
 
-    headers = _get_headers()
-
     payload = {}
 
     if name is not None:
         payload["cluster_name"] = name
     if deletion_protection is not None:
         payload["deletion_protection"] = deletion_protection
+
+    if len(payload) == 0:
+        return False, "No properties specified to edit. Provide --name and/or --deletion-protection."
+
+    headers = _get_headers()
 
     try:
         response = requests.patch(
@@ -1651,7 +1847,7 @@ def storage_edit(
         payload["size_gb"] = size
 
     if len(payload) == 0:
-        return False, "No properties specified to edit"
+        return False, "No properties specified to edit. Provide --name, --deletion-protection, and/or --size."
 
     try:
         response = requests.patch(
@@ -1671,7 +1867,7 @@ def storage_edit(
             f"Failed to decode server response. Status code: {response.status_code}",
         )
 
-    if response.status_code != 200:
+    if response.status_code != 202:
         error_msg = result.get(
             "message", f"Error editing storage volume. Status code: {response.status_code}"
         )
@@ -1681,11 +1877,12 @@ def storage_edit(
     return True, message
 
 
-def job_delete(job_id: str) -> Tuple[bool, str]:
+def job_delete(job_id: str, no_input: bool = False) -> Tuple[bool, str]:
     """
     Delete a terminal job (hides it from API endpoints)
     Args:
         job_id: The ID of the job to delete
+        no_input: Whether to skip interactive confirmation prompts
     Returns:
         A tuple containing a boolean indicating success and a message
     """
@@ -1788,18 +1985,18 @@ def ssh_key_create(key_path: str, name: Optional[str] = None) -> Tuple[bool, str
     return True, message
 
 
-def ssh_key_list(org: bool = False) -> Tuple[bool, str]:
+def ssh_key_list(include_org: bool = False) -> Tuple[bool, str]:
     """
     List all SSH keys registered with TensorPool
 
     Args:
-        org: If True, list all SSH keys in the organization
+        include_org: If True, list all SSH keys in the organization
 
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     headers = _get_headers()
-    params = {"org": org}
+    params = {"include_org": include_org} if include_org else {}
 
     try:
         response = requests.get(
