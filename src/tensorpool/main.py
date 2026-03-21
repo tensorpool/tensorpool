@@ -131,8 +131,8 @@ def main():
         help="Wait for the cluster to be fully provisioned before returning",
     )
     cluster_create_parser.add_argument(
-        "--experimental-container",
-        help="(experimental feature) container image to image cluster instances with",
+        "--container",
+        help="container image to image cluster instances with (https://docs.tensorpool.dev/features/clusters#container-images)",
     )
     cluster_destroy_parser = cluster_subparsers.add_parser(
         "destroy", aliases=["rm"], help="Destroy a cluster"
@@ -595,7 +595,7 @@ def main():
                 identity_file_path,
                 args.instance_type,
                 args.name,
-                args.experimental_container,
+                args.container,
                 args.num_nodes,
                 args.deletion_protection,
                 wait=args.wait,

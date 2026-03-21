@@ -1086,7 +1086,7 @@ def cluster_create(
     identity_file: Optional[str],
     instance_type: str,
     name: Optional[str],
-    experimental_container: Optional[str],
+    container: Optional[str],
     num_nodes: Optional[int],
     deletion_protection: bool = False,
     wait: bool = False,
@@ -1097,7 +1097,7 @@ def cluster_create(
         identity_file: Optional path to public SSH key file
         instance_type: Instance type (e.g. 1xH100, 2xH100, 4xH100, 8xH100)
         name: Optional cluster name
-        experimental_container: Optional container image override
+        container: Optional container image override
         num_nodes: Number of nodes (must be >= 1)
         deletion_protection: Enable deletion protection for the cluster
         no_input: Whether to skip interactive input prompts
@@ -1134,8 +1134,8 @@ def cluster_create(
     if name:
         config_payload["tp_cluster_name"] = name
 
-    if experimental_container:
-        config_payload["experimental_container"] = experimental_container
+    if container:
+        config_payload["container"] = container
 
     headers = _get_headers()
 
