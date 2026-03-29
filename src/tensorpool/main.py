@@ -32,6 +32,14 @@ from tensorpool.helpers import (
     storage_list,
     storage_info,
     storage_edit,
+    object_storage_enable,
+    object_storage_disable,
+    object_storage_credentials,
+    object_storage_configure_aws,
+    object_storage_configure_rclone,
+    object_storage_bucket_list,
+    object_storage_bucket_create,
+    object_storage_bucket_delete,
     safe_input,
     safe_confirm,
     ENGINE,
@@ -217,15 +225,9 @@ def main():
         "create", help="Create a new storage volume"
     )
     storage_create_parser.add_argument(
-        "volume_type",
-        help="Storage volume type ('fast' or 'flex')",
-    )
-    storage_create_parser.add_argument(
-        "-s",
-        "--size",
+        "size",
         type=int,
-        required=False,
-        help="Size of the storage volume in GB. Required for 'fast' volume types.",
+        help="Size of the storage volume in GB",
     )
     storage_create_parser.add_argument("--name", help="Storage volume name")
     storage_create_parser.add_argument(
@@ -289,6 +291,50 @@ def main():
         "--size",
         type=int,
         help="New size for the storage volume in GB (size can only be increased). At least one editable property is required.",
+    )
+
+    # Object storage parser
+    object_storage_parser = subparsers.add_parser(
+        "object-storage",
+        help="Manage S3-compatible object storage",
+    )
+    object_storage_subparsers = object_storage_parser.add_subparsers(
+        dest="object_storage_command"
+    )
+
+    object_storage_subparsers.add_parser(
+        "enable", help="Enable object storage for your organization"
+    )
+    object_storage_subparsers.add_parser(
+        "disable", help="Disable object storage for your organization"
+    )
+    object_storage_subparsers.add_parser(
+        "credentials", help="Get object storage credentials"
+    )
+
+    configure_parser = object_storage_subparsers.add_parser(
+        "configure", help="Get client configuration snippets"
+    )
+    configure_subparsers = configure_parser.add_subparsers(dest="configure_command")
+    # configure_subparsers.add_parser("aws", help="Configure AWS CLI for object storage")
+    configure_subparsers.add_parser("rclone", help="Configure rclone for object storage")
+
+    bucket_parser = object_storage_subparsers.add_parser(
+        "bucket", help="Manage object storage buckets"
+    )
+    bucket_subparsers = bucket_parser.add_subparsers(dest="bucket_command")
+    bucket_subparsers.add_parser("list", aliases=["ls"], help="List buckets")
+
+    bucket_create_parser = bucket_subparsers.add_parser(
+        "create", help="Create a bucket"
+    )
+    bucket_create_parser.add_argument("bucket_name", help="Name of the bucket to create")
+
+    bucket_delete_parser = bucket_subparsers.add_parser(
+        "delete", aliases=["rm"], help="Delete an empty bucket"
+    )
+    bucket_delete_parser.add_argument(
+        "bucket_name", help="Name of the bucket to delete"
     )
 
     # Create job subparser for job-related commands
@@ -703,7 +749,6 @@ def main():
             success, message = storage_create(
                 args.name,
                 args.size,
-                args.volume_type,
                 args.deletion_protection,
                 wait=args.wait,
             )
@@ -756,6 +801,48 @@ def main():
         else:
             storage_parser.print_help()
             return
+    elif args.command == "object-storage":
+        if args.object_storage_command == "enable":
+            with Spinner(text="Enabling object storage..."):
+                success, message = object_storage_enable()
+        elif args.object_storage_command == "disable":
+            with Spinner(text="Disabling object storage..."):
+                success, message = object_storage_disable()
+        elif args.object_storage_command == "credentials":
+            with Spinner(text="Fetching credentials..."):
+                success, message = object_storage_credentials()
+        elif args.object_storage_command == "configure":
+            # if args.configure_command == "aws":
+            #     with Spinner(text="Fetching AWS configuration..."):
+            #         success, message = object_storage_configure_aws()
+            if args.configure_command == "rclone":
+                with Spinner(text="Fetching rclone configuration..."):
+                    success, message = object_storage_configure_rclone()
+            else:
+                configure_parser.print_help()
+                return
+        elif args.object_storage_command == "bucket":
+            if args.bucket_command in ["list", "ls"]:
+                with Spinner(text="Listing buckets..."):
+                    success, message = object_storage_bucket_list()
+            elif args.bucket_command == "create":
+                with Spinner(text="Creating bucket..."):
+                    success, message = object_storage_bucket_create(args.bucket_name)
+            elif args.bucket_command in ["delete", "rm"]:
+                with Spinner(text="Deleting bucket..."):
+                    success, message = object_storage_bucket_delete(args.bucket_name)
+            else:
+                bucket_parser.print_help()
+                return
+        else:
+            object_storage_parser.print_help()
+            return
+
+        if message:
+            print(message)
+        if not success:
+            exit(1)
+        return
     elif args.command == "me":
         # Handle SSH key subcommands
         if args.me_command == "sshkey":

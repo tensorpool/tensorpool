@@ -137,11 +137,6 @@ def safe_confirm(prompt: str, no_input: bool = False, default: str = "y") -> str
         print(f"{prompt.rstrip()}: {default}")
         return default
 
-    # Check if stdin is a TTY (interactive terminal)
-    if not sys.stdin.isatty():
-        print(f"{prompt.rstrip()}: {default} (non-interactive, using default)")
-        return default
-
     try:
         return input(prompt)
     except EOFError:
@@ -1447,8 +1442,7 @@ def fetch_user_info() -> Tuple[bool, str]:
 
 def storage_create(
     name: Optional[str],
-    size: Optional[int],
-    storage_type: str,
+    size: int,
     deletion_protection: bool = False,
     wait: bool = False,
 ) -> Tuple[bool, str]:
@@ -1457,16 +1451,13 @@ def storage_create(
     Args:
         name: Optional name for the storage volume
         size: Size of the storage volume in GB
-        storage_type: Type of storage volume
         deletion_protection: Enable deletion protection for the storage volume
         wait: Whether to wait for the storage volume to be fully created
     Returns:
         A tuple containing a boolean indicating success and a message
     """
     # Build payload
-    payload: dict = {"storage_type": storage_type, "deletion_protection": deletion_protection}
-    if size is not None:
-        payload["size"] = size
+    payload: dict = {"size": size, "deletion_protection": deletion_protection}
     if name:
         payload["name"] = name
 
@@ -1499,12 +1490,16 @@ def storage_create(
         if not request_id:
             return True, _response_message(result, "Storage volume creation initiated")
 
-        return _poll_request_until_terminal(
+        storage_id = result.get("storage_id")
+        success, message = _poll_request_until_terminal(
             request_id=request_id,
             headers=headers,
             spinner=spinner,
             pending_text="Waiting for storage provisioning...",
         )
+        if success and storage_id:
+            return True, f"Storage volume {storage_id} created. Run `tp storage info {storage_id}` for details."
+        return success, message
 
 
 def storage_destroy(storage_id: str, no_input: bool = False, wait: bool = False) -> Tuple[bool, str]:
@@ -1875,6 +1870,331 @@ def storage_edit(
 
     message = result.get("message", "Storage volume edited successfully")
     return True, message
+
+
+# ---------------------------------------------------------------------------
+# Object storage helpers
+# ---------------------------------------------------------------------------
+
+
+def object_storage_enable() -> Tuple[bool, str]:
+    """
+    Enable S3-compatible object storage for the user's organization.
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.post(
+            f"{ENGINE}/object-storage/enable",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to enable object storage: {str(e)}"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    if response.status_code != 200:
+        return False, _response_message(
+            result, f"Failed to enable object storage. Status code: {response.status_code}"
+        )
+
+    lines = [
+        f"Access Key ID:     {result.get('access_key_id', 'N/A')}",
+        f"Secret Access Key: {result.get('secret_access_key', 'N/A')}",
+        f"Endpoint:          {result.get('endpoint', 'N/A')}",
+        f"Region:            {result.get('region', 'N/A')}",
+    ]
+    msg = result.get("message", "")
+    if msg:
+        lines.insert(0, msg)
+    return True, "\n".join(lines)
+
+
+def object_storage_disable() -> Tuple[bool, str]:
+    """
+    Disable S3-compatible object storage for the user's organization.
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.delete(
+            f"{ENGINE}/object-storage/disable",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to disable object storage: {str(e)}"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    if response.status_code != 200:
+        return False, _response_message(
+            result, f"Failed to disable object storage. Status code: {response.status_code}"
+        )
+
+    return True, _response_message(result, "Object storage disabled successfully")
+
+
+def object_storage_credentials() -> Tuple[bool, str]:
+    """
+    Retrieve object storage credentials for the user's organization.
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.get(
+            f"{ENGINE}/object-storage/credentials",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to fetch object storage credentials: {str(e)}"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    if response.status_code != 200:
+        return False, _response_message(
+            result, f"Failed to fetch credentials. Status code: {response.status_code}"
+        )
+
+    lines = [
+        f"Access Key ID:     {result.get('access_key_id', 'N/A')}",
+        f"Secret Access Key: {result.get('secret_access_key', 'N/A')}",
+        f"Endpoint:          {result.get('endpoint', 'N/A')}",
+        f"Region:            {result.get('region', 'N/A')}",
+    ]
+    return True, "\n".join(lines)
+
+
+def _upsert_ini_section(path: str, section_name: str, section_text: str) -> None:
+    """Replace or append an INI section in a config file.
+
+    ``section_text`` must be the full rendered section including the ``[name]``
+    header line.  If the file already contains a section with the same header
+    the old block is replaced in-place; otherwise the new section is appended.
+    Parent directories are created automatically.
+    """
+    import re
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    section_text = section_text.rstrip("\n") + "\n"
+
+    if os.path.exists(path):
+        existing = open(path, "r").read()
+    else:
+        existing = ""
+
+    # Match from the section header to the next header (or EOF).
+    pattern = re.compile(
+        rf"^\[{re.escape(section_name)}\].*?(?=\n\[|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+
+    if pattern.search(existing):
+        updated = pattern.sub(section_text.rstrip("\n"), existing)
+    else:
+        separator = "\n" if existing and not existing.endswith("\n") else ""
+        extra_newline = "\n" if existing.strip() else ""
+        updated = existing + separator + extra_newline + section_text
+
+    with open(path, "w") as f:
+        f.write(updated)
+
+
+def object_storage_configure_aws() -> Tuple[bool, str]:
+    """
+    Fetch AWS CLI configuration and write it to ~/.aws/credentials and ~/.aws/config.
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.get(
+            f"{ENGINE}/object-storage/configure/aws",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to fetch AWS configuration: {str(e)}"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    if response.status_code != 200:
+        return False, _response_message(
+            result, f"Failed to fetch AWS configuration. Status code: {response.status_code}"
+        )
+
+    profile_name: str = result.get("profile_name", "tp")
+    aws_dir = os.path.expanduser("~/.aws")
+    credentials_path = os.path.join(aws_dir, "credentials")
+    config_path = os.path.join(aws_dir, "config")
+
+    messages: list[str] = []
+
+    creds_text = result.get("credentials_file")
+    if creds_text:
+        _upsert_ini_section(credentials_path, profile_name, creds_text)
+        messages.append(f"Wrote [{profile_name}] to {credentials_path}")
+
+    config_text = result.get("config_file")
+    if config_text:
+        _upsert_ini_section(config_path, f"profile {profile_name}", config_text)
+        messages.append(f"Wrote [profile {profile_name}] to {config_path}")
+
+    endpoint = result.get("endpoint", "")
+    if endpoint:
+        messages.append(f"\nEndpoint (use with --endpoint-url): {endpoint}")
+
+    if not messages:
+        return True, _response_message(result, "No AWS configuration returned")
+    return True, "\n".join(messages)
+
+
+def object_storage_configure_rclone() -> Tuple[bool, str]:
+    """
+    Fetch rclone configuration and write it to the rclone config file.
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.get(
+            f"{ENGINE}/object-storage/configure/rclone",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to fetch rclone configuration: {str(e)}"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    if response.status_code != 200:
+        return False, _response_message(
+            result, f"Failed to fetch rclone configuration. Status code: {response.status_code}"
+        )
+
+    rclone_config_text = result.get("rclone_config", "")
+    if not rclone_config_text:
+        return True, _response_message(result, "No rclone configuration returned")
+
+    remote_name: str = result.get("remote_name", "tp")
+    rclone_config_path = os.path.expanduser("~/.config/rclone/rclone.conf")
+    _upsert_ini_section(rclone_config_path, remote_name, rclone_config_text)
+    return True, f"Wrote [{remote_name}] to {rclone_config_path}"
+
+
+def object_storage_bucket_list() -> Tuple[bool, str]:
+    """
+    List object storage buckets for the user's organization.
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.get(
+            f"{ENGINE}/object-storage/bucket/list",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to list buckets: {str(e)}"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    if response.status_code != 200:
+        return False, _response_message(
+            result, f"Failed to list buckets. Status code: {response.status_code}"
+        )
+
+    buckets = result.get("buckets", [])
+    if not buckets:
+        return True, "No buckets found"
+    return True, "\n".join(str(b) for b in buckets)
+
+
+def object_storage_bucket_create(bucket_name: str) -> Tuple[bool, str]:
+    """
+    Create an object storage bucket for the user's organization.
+    Args:
+        bucket_name: Name of the bucket to create
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.put(
+            f"{ENGINE}/object-storage/bucket/create/{bucket_name}",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to create bucket: {str(e)}"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    if response.status_code != 201:
+        return False, _response_message(
+            result, f"Failed to create bucket. Status code: {response.status_code}"
+        )
+
+    return True, _response_message(result, f"Bucket '{bucket_name}' created successfully")
+
+
+def object_storage_bucket_delete(bucket_name: str) -> Tuple[bool, str]:
+    """
+    Delete an empty object storage bucket for the user's organization.
+    Args:
+        bucket_name: Name of the bucket to delete (must be empty)
+    Returns:
+        A tuple containing a boolean indicating success and a message
+    """
+    headers = _get_headers()
+
+    try:
+        response = requests.delete(
+            f"{ENGINE}/object-storage/bucket/delete/{bucket_name}",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        return False, f"Failed to delete bucket: {str(e)}"
+
+    if response.status_code == 204:
+        return True, f"Bucket '{bucket_name}' deleted successfully"
+
+    result, decode_error = _decode_response_json(response)
+    if decode_error:
+        return False, decode_error
+
+    return False, _response_message(
+        result, f"Failed to delete bucket. Status code: {response.status_code}"
+    )
 
 
 def job_delete(job_id: str, no_input: bool = False) -> Tuple[bool, str]:
