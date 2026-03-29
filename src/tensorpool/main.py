@@ -443,6 +443,22 @@ def main():
         parser.print_help()
         return
 
+    # If a command with subcommands is invoked without a subcommand,
+    # show help immediately without requiring authentication.
+    subcommand_checks: dict[str, tuple[str, argparse.ArgumentParser]] = {
+        "cluster": ("cluster_command", cluster_parser),
+        "storage": ("storage_command", storage_parser),
+        "nfs": ("storage_command", storage_parser),
+        "job": ("job_command", job_parser),
+        "object-storage": ("object_storage_command", object_storage_parser),
+    }
+
+    if args.command in subcommand_checks:
+        dest, cmd_parser = subcommand_checks[args.command]
+        if getattr(args, dest, None) is None:
+            cmd_parser.print_help()
+            return
+
     key = get_tensorpool_key()
     if not key:
         print("TENSORPOOL_KEY environment variable not found.")
