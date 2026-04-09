@@ -1,17 +1,18 @@
 ---
 name: tensorpool
-description: This skill helps users migrate their local machine learning scripts to run on TensorPool GPU clusters using the interactive cluster workflow (tp ssh). Use this when a user has a working local script and wants to scale it up to professional GPU hardware.
+description: This skill helps users run ML workloads on TensorPool GPU infrastructure. It supports two workflows — (1) Jobs, a fire-and-forget git-style interface for training experiments via tp job, and (2) Clusters, interactive SSH-based GPU development via tp ssh. Use this when a user wants to run scripts on cloud GPUs, submit training jobs, manage GPU clusters, or scale up to professional hardware (H100, H200, B200, B300, etc.).
 ---
 
-# SKILL: Convert Local ML Scripts to TensorPool GPU Production Runs
+# SKILL: Run ML Workloads on TensorPool GPUs
 
 ## Overview
 
-This skill helps users migrate their local machine learning scripts to run on TensorPool GPU clusters using the interactive cluster workflow. Use this when a user has a working local script and wants to scale it up to professional GPU hardware (H100, H200, B200, B300, etc.).
+This skill helps users run machine learning workloads on TensorPool GPU infrastructure. There are **two workflows**:
 
-**Trigger phrases:** "run this on H100", "scale to TensorPool", "convert to production", "run on cloud GPU", "migrate to H100", "make this faster on GPU", "run on B200"
+1. **Jobs (fire-and-forget):** Configure a `.tp.toml` file, push it to a cluster, and retrieve outputs when done. Best for experiments, batch training, and unattended runs.
+2. **Clusters (interactive):** SSH into a GPU cluster, transfer code, run interactively. Best for debugging, development, and hands-on work.
 
-**Workflow:** Analyze local script → Discover CLI commands → Prepare for cluster → Create GPU cluster → Transfer code → Run on GPU → Retrieve outputs → Clean up
+**Trigger phrases:** "run this on H100", "submit a training job", "scale to TensorPool", "run on cloud GPU", "push a job", "run on B200", "create a cluster", "tp job", "tp ssh"
 
 ---
 
@@ -58,9 +59,11 @@ pip show tensorpool || pip install tensorpool
 tp --help
 
 # 3. Drill into relevant subcommands
+tp job --help
 tp cluster --help
 tp ssh --help
 tp storage --help
+tp object-storage --help
 tp me --help
 ```
 
@@ -71,13 +74,6 @@ tp me --help
 - Available instance types
 
 **If a command fails or the syntax has changed**, re-run `--help` on that subcommand to get the current usage.
-
-**General expectations** (these may change — always verify with `--help`):
-- There will be commands to: create clusters, list clusters, get cluster info, destroy clusters, SSH into instances, manage storage, and check account info
-- Cluster creation will need at minimum an instance type (e.g., `1xH100`, `8xB200`)
-- Multi-node clusters may only be supported for certain instance types
-- SSH will take some form of instance or cluster identifier
-- Cluster destruction will take a cluster identifier
 
 ---
 
@@ -95,7 +91,7 @@ tp me --help
    # https://tensorpool.dev/dashboard
    ```
 
-3. **SSH key available** (may be needed for rsync/scp to cluster):
+3. **SSH key available** (needed for rsync/scp and job pull):
    ```bash
    ls ~/.ssh/id_ed25519.pub || ssh-keygen -t ed25519
    ```
@@ -104,9 +100,121 @@ tp me --help
 
 ---
 
-## Step-by-Step Migration Workflow
+## Choosing an Instance Type
 
-### Step 1 — Analyze the Local Script
+| GPU | Memory | Best For |
+|-----|--------|----------|
+| H100 | 80GB | General training, fine-tuning 7B-70B models |
+| H200 | 141GB | Large context, 70B+ models, memory-bound workloads |
+| B200 | 192GB | Latest gen, native FP4/FP6, fastest training |
+| B300 | Latest | Newest generation, highest performance |
+| L40S | 48GB | Inference, smaller training workloads |
+
+Instance types come in configurations like `1xH100`, `2xH100`, `4xH100`, `8xH100`, etc.
+
+---
+
+# WORKFLOW 1: Jobs (Fire-and-Forget)
+
+Jobs are the recommended way to run training experiments. You configure a `.tp.toml` file defining your commands and outputs, push it to a cluster, and pull results when done.
+
+**When to use Jobs:** batch training, hyperparameter sweeps, unattended experiments, anything that doesn't need interactive access.
+
+## Job Workflow Overview
+
+```
+Analyze script → Create .tp.toml config → Create/select cluster → tp job push → tp job listen → tp job pull → (optional) teardown cluster
+```
+
+### Step J1 — Analyze the Script
+
+Before configuring a job, understand:
+
+1. **What does the script do?** (training, inference, data processing)
+2. **What are the dependencies?** (check imports, requirements.txt)
+3. **What data does it need?** (local files, datasets, pretrained models)
+4. **What outputs does it produce?** (model checkpoints, logs, results)
+5. **GPU requirements:** Single GPU? Multi-GPU? Memory needs?
+
+### Step J2 — Create the Job Configuration
+
+Initialize a config file. Figure out how by running `tp job --help`
+
+This generates a `{name}.tp.toml` file. Edit it with three sections:
+
+**commands** — Sequential shell commands executed in a fresh virtual environment:
+```toml
+commands = [
+    "pip install -r requirements.txt",
+    "python train.py --epochs 100 --batch_size 32",
+]
+```
+
+**outputs** — Files and directories to preserve after the job completes. Supports glob patterns:
+```toml
+outputs = [
+    "checkpoints/",
+    "model.pth",
+    "results.json",
+    "logs/",
+    "model_*.pth",
+]
+```
+
+**ignore** — Files to exclude from upload to the cluster:
+```toml
+ignore = [
+    ".venv",
+    "venv/",
+    "__pycache__/",
+    ".git",
+    "*.pyc",
+    "data/",
+    "outputs/",
+]
+```
+
+### Step J3 — Create or Select a Cluster
+
+Here, you select a cluster to submit a job to, or create a new one. 
+
+Figure out how to list or create new clusters by reading through the clusters workflow below.
+
+Note the cluster ID (e.g., `c-xxx`) from the output.
+
+### Step J4 — Push the Job
+
+You should then push the job to the cluster. Figure out how by running `tp job --help`
+
+### Step J5 — Monitor the Job
+
+You should then monitor the job. There are various tools to do this in `tp job --help` such as listening and checking for info.
+
+### Step J6 — Pull Results
+
+After the job is done, download all results. You probably will want to use the --force command to overwrite existing local files.
+
+Figure out how to do this by accessing `tp job --help`.
+
+### Managing Jobs
+
+You can also cancel and delete jobs by fetching those commands from `tp job --help`
+
+---
+
+# WORKFLOW 2: Clusters (Interactive SSH)
+
+Clusters give you full interactive SSH access to GPU machines. You manually transfer code, install dependencies, and run scripts.
+
+**When to use Clusters:** debugging, interactive development, Jupyter notebooks, exploratory work, anything requiring a shell.
+
+## Cluster Workflow Overview
+
+```
+Analyze script → Prepare code → Create cluster → Transfer code → SSH in → Setup env → Run script → Retrieve outputs → Destroy cluster
+```
+
+### Step C1 — Analyze the Local Script
 
 Before migrating, understand:
 
@@ -122,7 +230,7 @@ Before migrating, understand:
 - Does it use relative imports that might break?
 - Are there large data files that need to be transferred?
 
-### Step 2 — Prepare the Script for Cloud Execution
+### Step C2 — Prepare the Script for Cloud Execution
 
 **2.1 Create/verify requirements.txt:**
 ```bash
@@ -163,19 +271,7 @@ python your_script.py --max_samples 10 --num_epochs 1
 - Python cache (`__pycache__/`, `*.pyc`)
 - Virtual environments (`venv/`, `env/`)
 
-### Step 3 — Create GPU Cluster
-
-**Choosing an instance type:**
-
-| GPU | Memory | Best For |
-|-----|--------|----------|
-| H100 | 80GB | General training, fine-tuning 7B-70B models |
-| H200 | 141GB | Large context, 70B+ models, memory-bound workloads |
-| B200 | 192GB | Latest gen, native FP4/FP6, fastest training |
-| B300 | Latest | Newest generation, highest performance |
-| L40S | 48GB | Inference, smaller training workloads |
-
-Instance types come in configurations like `1xH100`, `2xH100`, `4xH100`, `8xH100`, etc.
+### Step C3 — Create GPU Cluster
 
 **To create a cluster:**
 1. Run `tp cluster --help` to see the exact create syntax and required arguments
@@ -184,7 +280,7 @@ Instance types come in configurations like `1xH100`, `2xH100`, `4xH100`, `8xH100
 
 **Wait for provisioning:** Clusters typically take 1-2 minutes to become ready.
 
-### Step 4 — Get Cluster Information
+### Step C4 — Get Cluster Information
 
 Use the cluster list/info commands (discovered via `tp cluster --help`) to get:
 - Cluster ID
@@ -192,7 +288,7 @@ Use the cluster list/info commands (discovered via `tp cluster --help`) to get:
 - IP address — needed for rsync/scp
 - Status (should be RUNNING)
 
-### Step 5 — Transfer Code to Cluster
+### Step C5 — Transfer Code to Cluster
 
 **Recommended: Use rsync (fast, resumable, efficient)**
 ```bash
@@ -211,13 +307,13 @@ scp script.py ubuntu@<cluster-ip>:~/
 scp -r ./data/ ubuntu@<cluster-ip>:~/data/
 ```
 
-### Step 6 — SSH into Cluster
+### Step C6 — SSH into Cluster
 
 Use the SSH command discovered via `tp ssh --help`, passing the appropriate instance or cluster identifier.
 
 **You're now on the GPU cluster!** All subsequent commands run on the cluster.
 
-### Step 7 — Setup Environment on Cluster
+### Step C7 — Setup Environment on Cluster
 
 **7.1 Verify GPU:**
 ```bash
@@ -260,7 +356,7 @@ tar -xzf large-dataset.tar.gz
 # No action needed - will download when script runs
 ```
 
-### Step 8 — Run Your Script on GPU
+### Step C8 — Run Your Script on GPU
 
 **8.1 Quick test first:**
 ```bash
@@ -297,7 +393,7 @@ tail -f training.log
 df -h
 ```
 
-### Step 9 — Retrieve Outputs
+### Step C9 — Retrieve Outputs
 
 **From your LOCAL machine** (open new terminal):
 ```bash
@@ -316,7 +412,7 @@ rsync -avz ubuntu@$CLUSTER_IP:~/my-project/logs/ ./logs/
 rsync -avz --progress ubuntu@$CLUSTER_IP:~/my-project/outputs/ ./outputs/
 ```
 
-### Step 10 — Destroy the Cluster
+### Step C10 — Destroy the Cluster
 
 ** CRITICAL: Always delete the cluster to avoid charges**
 
@@ -328,9 +424,17 @@ Verify deletion by listing clusters again — it should no longer appear.
 
 ---
 
-## NFS Storage (Persistent Volumes)
+## Object Storage (S3-Compatible)
 
-TensorPool offers NFS storage for persistent data across cluster lifecycles and for sharing data across multi-node clusters. Discover the exact commands via:
+TensorPool provides S3-compatible object storage for persistent data across jobs and clusters. This storage type is slower than NFS but globally replicated. No ingress/egress fees.
+
+You can discover how to use this tool by running `tp object-storage --help`
+
+---
+
+## Shared Storage (Persistent Volumes)
+
+TensorPool offers very fast shared storage for persistent data across cluster lifecycles and for sharing data across multi-node clusters. Discover the exact commands via:
 
 ```bash
 tp storage --help
@@ -338,10 +442,27 @@ tp storage --help
 
 ---
 
+## Choosing Between Jobs and Clusters
+
+| | Jobs | Clusters |
+|---|---|---|
+| **Best for** | Batch training, experiments | Interactive development, debugging |
+| **Access** | No SSH needed | Full SSH access |
+| **Workflow** | Configure .tp.toml → push → pull | SSH in → work manually |
+| **Auto-cleanup** | `--teardown` flag | Must manually destroy |
+| **Monitoring** | `tp job listen` | `nvidia-smi`, logs |
+| **Output retrieval** | `tp job pull` | rsync/scp manually |
+| **Cost safety** | `--teardown` prevents waste | Easy to forget to destroy |
+
+**Rule of thumb:** If you can define your workflow as a sequence of commands → use Jobs. If you need to poke around interactively → use Clusters.
+
+---
+
 ## Resources
 
 - **TensorPool Docs:** https://docs.tensorpool.dev
-- **Cluster Quickstart:** https://docs.tensorpool.dev/clusters-quickstart
+- **Jobs Quickstart:** https://docs.tensorpool.dev/quickstart
+- **Clusters Quickstart:** https://docs.tensorpool.dev/clusters-quickstart
 - **Instance Types:** https://docs.tensorpool.dev/resources/instance-types
 - **CLI Reference:** https://docs.tensorpool.dev/cli/overview
 - **Community Slack:** https://tensorpool.dev/slack
