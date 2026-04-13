@@ -12,7 +12,7 @@ This skill helps users run machine learning workloads on TensorPool GPU infrastr
 1. **Jobs (fire-and-forget):** Configure a `.tp.toml` file, push it to a cluster, and retrieve outputs when done. Best for experiments, batch training, and unattended runs.
 2. **Clusters (interactive):** SSH into a GPU cluster, transfer code, run interactively. Best for debugging, development, and hands-on work.
 
-**Trigger phrases:** "run this on H100", "submit a training job", "scale to TensorPool", "run on cloud GPU", "push a job", "run on B200", "create a cluster", "tp job", "tp ssh"
+**Trigger phrases:** "run on H100", "submit a training job", "scale to TensorPool", "run on cloud GPU", "push a job", "run on B200", "create a cluster", "tp job", "tp ssh"
 
 ---
 
